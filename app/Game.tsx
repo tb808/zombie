@@ -2,7 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
 type Screen = 'title' | 'playing' | 'paused' | 'dead' | 'won';
@@ -16,12 +21,54 @@ type Enemy = {
 };
 
 const MODEL = '/models/kenney/';
-const SURVIVAL_MODELS = new Set(['tent', 'campfire-pit', 'chest', 'resource-planks', 'barrel', 'box', 'box-open', 'signpost']);
+const SURVIVAL_MODELS = new Set(['tent', 'campfire-pit', 'chest', 'resource-planks', 'barrel', 'box', 'box-open', 'signpost', 'grass-large', 'grass', 'rock-a', 'rock-b', 'rock-c']);
 const modelUrl = (name: string) => {
   if (name.startsWith('suburban-')) return `${MODEL}suburban/${name.replace('suburban-', '')}.glb`;
   if (name.startsWith('industrial-')) return `${MODEL}industrial/${name.replace('industrial-', '')}.glb`;
   if (SURVIVAL_MODELS.has(name)) return `${MODEL}survival/${name}.glb`;
   return `${MODEL}graveyard/${name}.glb`;
+};
+
+const rawTerrainHeight = (x: number, z: number) => {
+  const rolling = Math.sin(x * 0.055) * Math.cos(z * 0.07) * 0.7 + Math.sin((x + z) * 0.035) * 0.38;
+  const hill = (cx: number, cz: number, sx: number, sz: number, height: number) => height * Math.exp(-(((x - cx) ** 2) / sx + ((z - cz) ** 2) / sz));
+  return rolling + hill(-48, 42, 480, 150, 5.2) + hill(8, 48, 850, 130, 3.8) + hill(72, 48, 350, 180, 5.6) + hill(-68, -52, 400, 120, 3.8) + hill(22, -50, 650, 135, 4.6) + hill(86, -47, 300, 120, 4.2);
+};
+
+const TERRAIN_PLATEAUS = [
+  [-60, -31, 17], [-22, -4, 25], [18, 18, 18], [55, 22, 23], [66, -25, 17],
+] as const;
+
+const terrainHeight = (x: number, z: number) => {
+  let height = rawTerrainHeight(x, z);
+  for (const [cx, cz, radius] of TERRAIN_PLATEAUS) {
+    const distance = Math.hypot(x - cx, z - cz);
+    const t = Math.max(0, Math.min(1, 1 - distance / radius));
+    const smooth = t * t * (3 - 2 * t);
+    height = THREE.MathUtils.lerp(height, rawTerrainHeight(cx, cz), smooth * 0.92);
+  }
+  return height;
+};
+
+const horizontalDistance = (a: THREE.Vector3, b: THREE.Vector3) => Math.hypot(a.x - b.x, a.z - b.z);
+
+const modelBaseHeight = (name: string) => {
+  if (name.startsWith('suburban-building') || name.startsWith('industrial-building')) return 5.6;
+  if (name.includes('tree') || name.startsWith('pine')) return 5.4;
+  if (name.startsWith('gravestone')) return 1.25;
+  if (name.includes('fence') || name.includes('wall')) return 1.35;
+  if (name === 'crypt-large') return 3.7;
+  if (name === 'tent') return 1.85;
+  if (name.includes('lightpost')) return 3.6;
+  if (name.includes('fire-basket')) return 1.2;
+  if (name.includes('barrel')) return 0.9;
+  if (name.includes('box') || name.includes('chest')) return 0.68;
+  if (name.includes('grass')) return 0.55;
+  if (name.startsWith('rock') || name === 'rocks') return 0.95;
+  if (name === 'coffin') return 0.65;
+  if (name.includes('chimney')) return 5;
+  if (name.includes('tank')) return 2.8;
+  return 1;
 };
 const START = new THREE.Vector3(-61, 1.68, -35);
 const INITIAL_HUD: Hud = { health: 100, ammo: 12, reserve: 48, stamina: 100, stage: 0, kills: 0, timer: 40, prompt: '', reloading: false, distance: 8 };
@@ -76,15 +123,15 @@ export default function Game() {
     renderer.toneMappingExposure = 0.92;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x080e0d);
-    scene.fog = new THREE.FogExp2(0x101b19, 0.015);
+    scene.background = new THREE.Color(0x07100f);
+    scene.fog = new THREE.FogExp2(0x152321, 0.0125);
     const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 180);
     camera.rotation.order = 'YXZ';
-    camera.position.copy(START);
+    camera.position.set(START.x, terrainHeight(START.x, START.z) + 1.72, START.z);
     scene.add(camera);
 
-    scene.add(new THREE.HemisphereLight(0x87a99c, 0x11150f, 1.3));
-    const moonLight = new THREE.DirectionalLight(0xc4ded4, 2.8);
+    scene.add(new THREE.HemisphereLight(0x8fb3ae, 0x172018, 1.55));
+    const moonLight = new THREE.DirectionalLight(0xc8e2dc, 3.4);
     moonLight.position.set(-35, 50, 18);
     moonLight.castShadow = true;
     moonLight.shadow.mapSize.set(2048, 2048);
@@ -95,16 +142,101 @@ export default function Game() {
     moon.position.set(-55, 52, -80);
     scene.add(moon);
 
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(190, 125, 20, 14), new THREE.MeshStandardMaterial({ color: 0x26362d, roughness: 1, flatShading: true }));
+    const sky = new THREE.Mesh(
+      new THREE.SphereGeometry(145, 28, 16),
+      new THREE.ShaderMaterial({
+        side: THREE.BackSide,
+        depthWrite: false,
+        vertexShader: 'varying vec3 vP; void main(){vP=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
+        fragmentShader: 'varying vec3 vP; void main(){float h=clamp(normalize(vP).y*.5+.5,0.,1.);vec3 low=vec3(.035,.075,.068);vec3 high=vec3(.008,.018,.026);gl_FragColor=vec4(mix(low,high,smoothstep(.15,.86,h)),1.);}',
+      }),
+    );
+    scene.add(sky);
+    const starPositions: number[] = [];
+    for (let i = 0; i < 380; i += 1) {
+      const angle = Math.random() * Math.PI * 2, elevation = 0.1 + Math.random() * 1.25, radius = 115;
+      starPositions.push(Math.cos(angle) * Math.cos(elevation) * radius, Math.sin(elevation) * radius, Math.sin(angle) * Math.cos(elevation) * radius);
+    }
+    const starGeometry = new THREE.BufferGeometry(); starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starPositions, 3));
+    scene.add(new THREE.Points(starGeometry, new THREE.PointsMaterial({ color: 0xc7d9d4, size: 0.16, transparent: true, opacity: 0.7, sizeAttenuation: true })));
+
+    const terrainGeometry = new THREE.PlaneGeometry(190, 125, 76, 50);
+    const terrainPosition = terrainGeometry.getAttribute('position') as THREE.BufferAttribute;
+    const terrainColors: number[] = [];
+    const lowColor = new THREE.Color(0x24372d), highColor = new THREE.Color(0x435344), tempColor = new THREE.Color();
+    for (let i = 0; i < terrainPosition.count; i += 1) {
+      const x = terrainPosition.getX(i), z = -terrainPosition.getY(i), height = terrainHeight(x, z);
+      terrainPosition.setZ(i, height);
+      tempColor.copy(lowColor).lerp(highColor, THREE.MathUtils.clamp((height + 1) / 7, 0, 1));
+      const variation = Math.sin(x * 1.7 + z * 2.3) * 0.035; tempColor.offsetHSL(0, 0, variation);
+      terrainColors.push(tempColor.r, tempColor.g, tempColor.b);
+    }
+    terrainGeometry.setAttribute('color', new THREE.Float32BufferAttribute(terrainColors, 3));
+    terrainGeometry.computeVertexNormals();
+    const ground = new THREE.Mesh(terrainGeometry, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.96, metalness: 0.02 }));
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
     scene.add(ground);
 
+    const mistCanvas = document.createElement('canvas'); mistCanvas.width = 128; mistCanvas.height = 128;
+    const mistContext = mistCanvas.getContext('2d');
+    if (mistContext) {
+      const gradient = mistContext.createRadialGradient(64, 64, 3, 64, 64, 62);
+      gradient.addColorStop(0, 'rgba(190,220,208,.6)'); gradient.addColorStop(0.45, 'rgba(160,190,180,.22)'); gradient.addColorStop(1, 'rgba(120,160,150,0)');
+      mistContext.fillStyle = gradient; mistContext.fillRect(0, 0, 128, 128);
+    }
+    const mistTexture = new THREE.CanvasTexture(mistCanvas);
+    for (let i = 0; i < 26; i += 1) {
+      const x = -82 + (i * 29 % 166), z = -50 + (i * 43 % 104);
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: mistTexture, color: 0xb8d0c6, transparent: true, opacity: 0.1, depthWrite: false }));
+      sprite.position.set(x, terrainHeight(x, z) + 1.35, z); sprite.scale.set(18 + i % 5 * 4, 5 + i % 3, 1); scene.add(sprite);
+    }
+
+    const composer = new EffectComposer(renderer);
+    composer.addPass(new RenderPass(scene, camera));
+    composer.addPass(new UnrealBloomPass(new THREE.Vector2(1, 1), 0.36, 0.55, 0.82));
+    composer.addPass(new OutputPass());
+
     const loader = new GLTFLoader();
+    const fbxLoader = new FBXLoader();
+    const textureLoader = new THREE.TextureLoader();
     const assets = new Map<string, Promise<{ scene: THREE.Object3D; animations: THREE.AnimationClip[] }>>();
     const load = (name: string) => {
       if (!assets.has(name)) assets.set(name, new Promise((resolve, reject) => loader.load(modelUrl(name), (gltf) => resolve(gltf), undefined, reject)));
       return assets.get(name)!;
+    };
+    const fbxCache = new Map<string, Promise<THREE.Group>>();
+    const loadFbx = (path: string) => {
+      if (!fbxCache.has(path)) fbxCache.set(path, new Promise((resolve, reject) => fbxLoader.load(path, resolve, undefined, reject)));
+      return fbxCache.get(path)!;
+    };
+    const textureCache = new Map<string, Promise<THREE.Texture>>();
+    const loadSkin = (skin: string) => {
+      if (!textureCache.has(skin)) textureCache.set(skin, new Promise((resolve, reject) => textureLoader.load(`${MODEL}characters/skins/${skin}.png`, (texture) => { texture.colorSpace = THREE.SRGBColorSpace; texture.magFilter = THREE.NearestFilter; resolve(texture); }, undefined, reject)));
+      return textureCache.get(skin)!;
+    };
+    const loadCharacter = async (skin: string, animation: 'idle' | 'run') => {
+      const [base, animationSource, texture] = await Promise.all([
+        loadFbx(`${MODEL}characters/characterMedium.fbx`),
+        loadFbx(`${MODEL}characters/animations/${animation}.fbx`),
+        loadSkin(skin),
+      ]);
+      const model = cloneSkeleton(base) as THREE.Group;
+      model.traverse((child) => {
+        if (child instanceof THREE.SkinnedMesh || child instanceof THREE.Mesh) {
+          child.castShadow = true; child.receiveShadow = true;
+          child.material = new THREE.MeshStandardMaterial({ map: texture, roughness: 0.82, metalness: 0.02, alphaTest: 0.02 });
+        }
+      });
+      model.updateMatrixWorld(true);
+      const sourceBounds = new THREE.Box3().setFromObject(model), sourceSize = sourceBounds.getSize(new THREE.Vector3());
+      const factor = 1.82 / Math.max(sourceSize.y, 0.001); model.scale.setScalar(factor); model.updateMatrixWorld(true);
+      const scaledBounds = new THREE.Box3().setFromObject(model); model.position.y -= scaledBounds.min.y;
+      model.rotation.y = Math.PI;
+      const mixer = new THREE.AnimationMixer(model);
+      const clip = animationSource.animations[0] ?? base.animations[0];
+      if (clip) mixer.clipAction(clip).play();
+      return { model, mixer };
     };
     const prep = (object: THREE.Object3D) => {
       object.traverse((child) => {
@@ -114,21 +246,40 @@ export default function Game() {
     };
     const place = (name: string, x: number, z: number, scale = 1, rotation = 0, y = 0) => {
       const anchor = new THREE.Group();
-      anchor.position.set(x, y, z); anchor.rotation.y = rotation; anchor.scale.setScalar(scale);
+      anchor.position.set(x, terrainHeight(x, z) + y, z); anchor.rotation.y = rotation;
       scene.add(anchor);
-      load(name).then((asset) => { if (!disposed) anchor.add(prep(cloneSkeleton(asset.scene))); }).catch(() => undefined);
+      load(name).then((asset) => {
+        if (disposed) return;
+        const model = prep(cloneSkeleton(asset.scene)); model.updateMatrixWorld(true);
+        const initialBounds = new THREE.Box3().setFromObject(model), size = initialBounds.getSize(new THREE.Vector3());
+        const desiredHeight = modelBaseHeight(name) * scale;
+        model.scale.setScalar(desiredHeight / Math.max(size.y, 0.001)); model.updateMatrixWorld(true);
+        const finalBounds = new THREE.Box3().setFromObject(model); model.position.y -= finalBounds.min.y;
+        anchor.add(model);
+      }).catch(() => undefined);
       return anchor;
     };
 
     const obstacles: { x: number; z: number; hx: number; hz: number }[] = [];
     const building = (name: string, x: number, z: number, scale: number, rotation: number, hx: number, hz: number) => {
       place(name, x, z, scale, rotation);
-      obstacles.push({ x, z, hx: rotation % Math.PI === 0 ? hx : hz, hz: rotation % Math.PI === 0 ? hz : hx });
+      obstacles.push({ x, z, hx: (rotation % Math.PI === 0 ? hx : hz) * 1.22, hz: (rotation % Math.PI === 0 ? hz : hx) * 1.22 });
     };
     const roadMaterial = new THREE.MeshStandardMaterial({ color: 0x333b38, roughness: 1 });
     const road = (x: number, z: number, w: number, h: number, rotation = 0) => {
-      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), roadMaterial);
-      mesh.rotation.x = -Math.PI / 2; mesh.rotation.z = rotation; mesh.position.set(x, 0.018, z); mesh.receiveShadow = true; scene.add(mesh);
+      const xSegments = Math.max(2, Math.ceil(w / 3)), zSegments = Math.max(2, Math.ceil(h / 3));
+      const vertices: number[] = [], indices: number[] = [], uvs: number[] = [];
+      for (let iz = 0; iz <= zSegments; iz += 1) for (let ix = 0; ix <= xSegments; ix += 1) {
+        const localX = (ix / xSegments - 0.5) * w, localZ = (iz / zSegments - 0.5) * h;
+        const worldX = x + localX * Math.cos(rotation) - localZ * Math.sin(rotation);
+        const worldZ = z + localX * Math.sin(rotation) + localZ * Math.cos(rotation);
+        vertices.push(worldX, terrainHeight(worldX, worldZ) + 0.055, worldZ); uvs.push(ix / xSegments, iz / zSegments);
+      }
+      for (let iz = 0; iz < zSegments; iz += 1) for (let ix = 0; ix < xSegments; ix += 1) {
+        const a = iz * (xSegments + 1) + ix, b = a + 1, c = a + xSegments + 1, d = c + 1; indices.push(a, c, b, b, c, d);
+      }
+      const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3)); geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2)); geometry.setIndex(indices); geometry.computeVertexNormals();
+      const mesh = new THREE.Mesh(geometry, roadMaterial); mesh.receiveShadow = true; scene.add(mesh);
     };
     road(0, -7, 145, 9, 0.05);
     road(18, 10, 8, 48, -0.55);
@@ -177,7 +328,7 @@ export default function Game() {
 
     // Radio tower / evacuation site
     building('industrial-building-r', 70, -35, 1.7, Math.PI, 4.8, 4.2);
-    const tower = new THREE.Group(); tower.position.set(66, 0, -25); scene.add(tower);
+    const tower = new THREE.Group(); tower.position.set(66, terrainHeight(66, -25), -25); scene.add(tower);
     const steel = new THREE.MeshStandardMaterial({ color: 0x7f8983, metalness: 0.55, roughness: 0.45 });
     for (let i = 0; i < 4; i += 1) {
       const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.18, 15, 6), steel);
@@ -186,20 +337,24 @@ export default function Game() {
     for (let y = 2; y < 14; y += 2) {
       const ring = new THREE.Mesh(new THREE.TorusGeometry(1.55 - y * 0.035, 0.07, 4, 4), steel); ring.position.y = y; ring.rotation.x = Math.PI / 2; tower.add(ring);
     }
-    const redBeacon = new THREE.PointLight(0xff301f, 28, 28, 2); redBeacon.position.set(66, 15, -25); scene.add(redBeacon);
+    const redBeacon = new THREE.PointLight(0xff301f, 34, 36, 2); redBeacon.position.set(66, terrainHeight(66, -25) + 15, -25); scene.add(redBeacon);
     place('fire-basket', 60, -30, 1.3); place('fire-basket', 72, -30, 1.3);
     for (let i = 0; i < 10; i += 1) place(i % 2 ? 'box' : 'barrel', 56 + (i % 5) * 5, -40 + Math.floor(i / 5) * 4, 1.1, i);
 
     // Trees, rocks and roadside clutter keep the route dense.
-    for (let i = 0; i < 52; i += 1) {
-      const x = -82 + (i * 31 % 166); const z = -54 + (i * 47 % 108);
+    for (let i = 0; i < 92; i += 1) {
+      const x = -88 + (i * 31 % 176); const z = -59 + (i * 47 % 118);
       if (Math.abs(z + 7) < 8 || (x > -45 && x < 78 && z > -22 && z < 38)) continue;
-      place(i % 3 ? 'suburban-tree-large' : 'pine-crooked', x, z, i % 3 ? 1.9 : 1.25, i * 1.7);
-      if (i % 5 === 0) place('rocks', x + 2.2, z - 1.2, 0.8, i);
+      place(i % 3 ? 'suburban-tree-large' : 'pine-crooked', x, z, i % 3 ? 1.75 + (i % 4) * 0.12 : 1.25, i * 1.7);
+      if (i % 4 === 0) place(`rock-${(['a', 'b', 'c'] as const)[i % 3]}`, x + 2.2, z - 1.2, 1 + (i % 2) * 0.4, i);
+    }
+    for (let i = 0; i < 58; i += 1) {
+      const x = -82 + (i * 23 % 164), z = -52 + (i * 37 % 104);
+      if (Math.abs(z + 7) > 4) place(i % 3 ? 'grass-large' : 'grass', x, z, 1.1 + (i % 4) * 0.18, i * 0.7);
     }
 
     const warmLights: [number, number, number, number][] = [[-54,-35,0xff8a42,22],[-28,-6,0xf3b15b,12],[14,18,0xff7038,14],[21,18,0xff7038,14],[48,20,0x6fc7ff,18],[66,-25,0xd9ff43,20]];
-    warmLights.forEach(([x,z,color,intensity]) => { const light = new THREE.PointLight(color, intensity, 14, 2); light.position.set(x, 3, z); scene.add(light); });
+    warmLights.forEach(([x,z,color,intensity]) => { const light = new THREE.PointLight(color, intensity * 1.15, 18, 2); light.position.set(x, terrainHeight(x, z) + 3, z); light.castShadow = intensity > 17; scene.add(light); });
 
     // First-person weapon
     const weapon = new THREE.Group(); weapon.position.set(0.38, -0.34, -0.66); camera.add(weapon);
@@ -216,34 +371,34 @@ export default function Game() {
     const npcAnchors: { mara: THREE.Group; noah: THREE.Group } = {
       mara: new THREE.Group(), noah: new THREE.Group(),
     };
-    npcAnchors.mara.position.set(-53, 0, -33); npcAnchors.noah.position.set(17, 0, 19); npcAnchors.noah.visible = false;
+    npcAnchors.mara.position.set(-53, terrainHeight(-53, -33), -33); npcAnchors.noah.position.set(17, terrainHeight(17, 19), 19); npcAnchors.noah.visible = false;
     scene.add(npcAnchors.mara, npcAnchors.noah);
-    const makeNpc = (anchor: THREE.Group, accent: number) => {
+    const npcMixers: THREE.AnimationMixer[] = [];
+    const makeNpc = (anchor: THREE.Group, skin: string, animation: 'idle' | 'run', accent: number) => {
       const fallback = new THREE.Mesh(new THREE.CapsuleGeometry(0.38, 0.8, 4, 7), new THREE.MeshStandardMaterial({ color: accent })); fallback.position.y = 0.9; anchor.add(fallback);
-      load('character-keeper').then((asset) => {
+      loadCharacter(skin, animation).then(({ model, mixer }) => {
         if (disposed) return; fallback.visible = false;
-        const model = prep(cloneSkeleton(asset.scene)); model.scale.setScalar(1.08); model.rotation.y = Math.PI; anchor.add(model);
-        if (asset.animations[0]) { const mixer = new THREE.AnimationMixer(model); mixer.clipAction(asset.animations[0]).play(); npcMixers.push(mixer); }
+        anchor.add(model); npcMixers.push(mixer);
         const badge = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, 0.05), new THREE.MeshBasicMaterial({ color: accent })); badge.position.set(0, 1.45, -0.26); anchor.add(badge);
       }).catch(() => undefined);
     };
-    const npcMixers: THREE.AnimationMixer[] = [];
-    makeNpc(npcAnchors.mara, 0xff695c); makeNpc(npcAnchors.noah, 0x53c8ff);
+    makeNpc(npcAnchors.mara, 'survivorFemaleA', 'idle', 0xff695c); makeNpc(npcAnchors.noah, 'survivorMaleB', 'run', 0x53c8ff);
 
     const objectiveMarker = new THREE.Group(); scene.add(objectiveMarker);
     const markerBeam = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.25, 7, 8, 1, true), new THREE.MeshBasicMaterial({ color: 0xd9ff43, transparent: true, opacity: 0.26, side: THREE.DoubleSide })); markerBeam.position.y = 3.5;
     const markerRing = new THREE.Mesh(new THREE.TorusGeometry(1.1, 0.05, 6, 28), new THREE.MeshBasicMaterial({ color: 0xd9ff43 })); markerRing.rotation.x = Math.PI / 2; markerRing.position.y = 0.05;
     objectiveMarker.add(markerBeam, markerRing);
+    const moveObjectiveMarker = (stage: number) => { const target = OBJECTIVES[stage].target; objectiveMarker.position.set(target.x, terrainHeight(target.x, target.z), target.z); };
 
-    const fuelCell = new THREE.Group(); fuelCell.position.set(-19, 0, -4); scene.add(fuelCell);
+    const fuelBaseY = terrainHeight(-19, -4); const fuelCell = new THREE.Group(); fuelCell.position.set(-19, fuelBaseY, -4); scene.add(fuelCell);
     const fuelMesh = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.85, 0.42), new THREE.MeshStandardMaterial({ color: 0xd9ff43, emissive: 0x6c7d1e, emissiveIntensity: 1.2 })); fuelMesh.position.y = 0.55; fuelCell.add(fuelMesh);
-    const serum = new THREE.Group(); serum.position.set(48, 0, 23); scene.add(serum);
+    const serumBaseY = terrainHeight(48, 23); const serum = new THREE.Group(); serum.position.set(48, serumBaseY, 23); scene.add(serum);
     const serumMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.65, 10), new THREE.MeshStandardMaterial({ color: 0x64d9ff, emissive: 0x238fb1, emissiveIntensity: 1.8, transparent: true, opacity: 0.85 })); serumMesh.position.y = 0.7; serum.add(serumMesh);
 
-    const pickups: { object: THREE.Group; kind: 'ammo' | 'health'; taken: boolean }[] = [];
+    const pickups: { object: THREE.Group; kind: 'ammo' | 'health'; taken: boolean; baseY: number }[] = [];
     const pickup = (kind: 'ammo' | 'health', x: number, z: number) => {
-      const object = new THREE.Group(); object.position.set(x, 0.25, z);
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(kind === 'ammo' ? 0.6 : 0.5, 0.35, 0.45), new THREE.MeshStandardMaterial({ color: kind === 'ammo' ? 0xe6b95b : 0xe6524b, emissive: kind === 'ammo' ? 0x4d350a : 0x4d0808, emissiveIntensity: 0.8 })); object.add(mesh); scene.add(object); pickups.push({ object, kind, taken: false });
+      const baseY = terrainHeight(x, z) + 0.28; const object = new THREE.Group(); object.position.set(x, baseY, z);
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(kind === 'ammo' ? 0.6 : 0.5, 0.35, 0.45), new THREE.MeshStandardMaterial({ color: kind === 'ammo' ? 0xe6b95b : 0xe6524b, emissive: kind === 'ammo' ? 0x4d350a : 0x4d0808, emissiveIntensity: 0.8 })); object.add(mesh); scene.add(object); pickups.push({ object, kind, taken: false, baseY });
     };
     [[-45,-6],[-30,4],[-2,13],[27,7],[40,26],[61,5],[73,-31]].forEach(([x,z],i)=>pickup(i%3===0?'health':'ammo',x,z));
 
@@ -266,14 +421,15 @@ export default function Game() {
     const spawnEnemy = (x?: number, z?: number, tougher = false) => {
       if (enemies.filter((e) => e.alive).length >= 26) return;
       const angle = Math.random() * Math.PI * 2, distance = 15 + Math.random() * 12;
-      const group = new THREE.Group(); group.position.set(x ?? camera.position.x + Math.cos(angle) * distance, 0, z ?? camera.position.z + Math.sin(angle) * distance); scene.add(group);
+      const spawnX = THREE.MathUtils.clamp(x ?? camera.position.x + Math.cos(angle) * distance, -86, 83);
+      const spawnZ = THREE.MathUtils.clamp(z ?? camera.position.z + Math.sin(angle) * distance, -57, 53);
+      const group = new THREE.Group(); group.position.set(spawnX, terrainHeight(spawnX, spawnZ), spawnZ); scene.add(group);
       const hitbox = new THREE.Mesh(new THREE.CapsuleGeometry(0.46, 1.05, 3, 7), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })); hitbox.position.y = 1.05; group.add(hitbox); enemyHitboxes.push(hitbox);
       const fallback = new THREE.Mesh(new THREE.CapsuleGeometry(0.42, 0.9, 3, 7), new THREE.MeshStandardMaterial({ color: tougher ? 0x8b6544 : 0x76934f, flatShading: true })); fallback.position.y = 0.95; fallback.castShadow = true; group.add(fallback);
       const enemy: Enemy = { group, hitbox, health: tougher ? 5 : 3, speed: 1.35 + Math.random() * 0.65 + runtime.stage * 0.08, attack: 0, alive: true }; hitbox.userData.enemy = enemy; enemies.push(enemy);
-      load(tougher ? 'character-skeleton' : 'character-zombie').then((asset) => {
+      loadCharacter(tougher ? 'zombieC' : Math.random() > 0.5 ? 'zombieA' : 'zombieC', 'run').then(({ model, mixer }) => {
         if (disposed || !enemy.alive) return; fallback.visible = false;
-        const model = prep(cloneSkeleton(asset.scene)); model.scale.setScalar(tougher ? 1.12 : 1.02 + Math.random() * 0.12); model.rotation.y = Math.PI; group.add(model);
-        if (asset.animations[0]) { enemy.mixer = new THREE.AnimationMixer(model); enemy.mixer.clipAction(asset.animations[0]).play(); }
+        const variation = tougher ? 1.13 : 0.98 + Math.random() * 0.07; model.scale.multiplyScalar(variation); group.add(model); enemy.mixer = mixer;
       }).catch(() => undefined);
     };
     const killEnemy = (enemy: Enemy) => { enemy.alive = false; scene.remove(enemy.group); const index = enemyHitboxes.indexOf(enemy.hitbox); if (index >= 0) enemyHitboxes.splice(index, 1); runtime.kills += 1; tone(75, 0.12, 'sawtooth', 0.018); };
@@ -295,27 +451,27 @@ export default function Game() {
       }
     };
 
-    const nearEnemy = (position: THREE.Vector3, radius: number) => enemies.some((enemy) => enemy.alive && enemy.group.position.distanceTo(position) < radius);
+    const nearEnemy = (position: THREE.Vector3, radius: number) => enemies.some((enemy) => enemy.alive && horizontalDistance(enemy.group.position, position) < radius);
     const advanceStory = () => {
       if (!runtime.active) return;
       const target = OBJECTIVES[runtime.stage].target;
-      if (camera.position.distanceTo(target) > 3.2) return;
+      if (horizontalDistance(camera.position, target) > 3.2) return;
       if (runtime.stage === 2 && nearEnemy(target, 8)) { runtime.prompt = 'BEREICH SICHERN'; return; }
       if (runtime.stage === 0) { runtime.stage = 1; say(STORY.mara); spawnPack(-24, -2, 5); }
       else if (runtime.stage === 1) { runtime.stage = 2; fuelCell.visible = false; npcAnchors.noah.visible = true; say(STORY.fuel); spawnPack(15, 17, 7); }
       else if (runtime.stage === 2) { runtime.stage = 3; say(STORY.noah); spawnPack(48, 20, 8); }
       else if (runtime.stage === 3) { runtime.stage = 4; serum.visible = false; say(STORY.serum); spawnPack(62, -20, 7); }
       else if (runtime.stage === 4) { runtime.stage = 5; runtime.timer = 40; say(STORY.tower); spawnPack(66, -25, 10); }
-      objectiveMarker.position.copy(OBJECTIVES[runtime.stage].target);
+      moveObjectiveMarker(runtime.stage);
     };
 
     const resetGame = () => {
       enemies.forEach((enemy) => scene.remove(enemy.group)); enemies.length = 0; enemyHitboxes.length = 0;
-      camera.position.copy(START); yaw = 0.35; pitch = 0; camera.rotation.set(0, yaw, 0);
+      camera.position.set(START.x, terrainHeight(START.x, START.z) + 1.72, START.z); yaw = 0.35; pitch = 0; camera.rotation.set(0, yaw, 0);
       fuelCell.visible = true; serum.visible = true; npcAnchors.noah.visible = false;
       pickups.forEach((item) => { item.taken = false; item.object.visible = true; });
       runtime = { ...INITIAL_HUD, active: true, spawn: 2.5, hudTick: 0, invulnerable: 0, reloadLeft: 0, dialogueTime: 0, locationName: '', zoneTriggered: new Set<number>() };
-      objectiveMarker.position.copy(OBJECTIVES[0].target); setHud(INITIAL_HUD); setScreen('playing'); setLocation(null); say(STORY.intro);
+      moveObjectiveMarker(0); setHud(INITIAL_HUD); setScreen('playing'); setLocation(null); say(STORY.intro);
       audio ??= new AudioContext(); audio.resume(); canvas.requestPointerLock?.();
     };
     apiRef.current = { start: resetGame, resume: () => { runtime.active = true; setScreen('playing'); audio?.resume(); canvas.requestPointerLock?.(); } };
@@ -341,10 +497,14 @@ export default function Game() {
     const onPointerLock = () => {
       if (document.pointerLockElement !== canvas && runtime.active) { runtime.active = false; setScreen('paused'); }
     };
-    const resize = () => { const w = canvas.clientWidth, h = canvas.clientHeight; renderer.setSize(w, h, false); camera.aspect = w / Math.max(h, 1); camera.updateProjectionMatrix(); };
+    const resize = () => { const w = canvas.clientWidth, h = canvas.clientHeight; renderer.setSize(w, h, false); composer.setSize(w, h); camera.aspect = w / Math.max(h, 1); camera.updateProjectionMatrix(); };
     addEventListener('keydown', onKeyDown); addEventListener('keyup', onKeyUp); addEventListener('mousemove', onMouseMove); addEventListener('resize', resize); document.addEventListener('pointerlockchange', onPointerLock); canvas.addEventListener('mousedown', onMouseDown); resize();
 
-    Promise.all(['character-zombie','character-keeper','suburban-building-type-a','industrial-building-a'].map(load)).then(() => { if (!disposed) setLoaded(true); }).catch(() => { if (!disposed) setLoaded(true); });
+    Promise.all([
+      loadFbx(`${MODEL}characters/characterMedium.fbx`), loadFbx(`${MODEL}characters/animations/run.fbx`),
+      loadFbx(`${MODEL}characters/animations/idle.fbx`), loadSkin('zombieA'),
+      load('suburban-building-type-a'), load('industrial-building-a'),
+    ]).then(() => { if (!disposed) setLoaded(true); }).catch(() => { if (!disposed) setLoaded(true); });
 
     const animate = () => {
       frame = requestAnimationFrame(animate); const dt = Math.min(clock.getDelta(), 0.045);
@@ -352,8 +512,8 @@ export default function Game() {
       redBeacon.intensity = 20 + Math.sin(performance.now() * 0.004) * 8;
       markerRing.rotation.z += dt * 0.8;
       if (markerBeam.material instanceof THREE.MeshBasicMaterial) markerBeam.material.opacity = 0.2 + Math.sin(performance.now() * 0.003) * 0.08;
-      fuelCell.rotation.y += dt; fuelCell.position.y = Math.sin(performance.now() * 0.003) * 0.08;
-      serum.rotation.y -= dt; serum.position.y = Math.sin(performance.now() * 0.003 + 2) * 0.08;
+      fuelCell.rotation.y += dt; fuelCell.position.y = fuelBaseY + Math.sin(performance.now() * 0.003) * 0.08;
+      serum.rotation.y -= dt; serum.position.y = serumBaseY + Math.sin(performance.now() * 0.003 + 2) * 0.08;
 
       if (runtime.active) {
         camera.rotation.set(pitch + recoil, yaw, 0);
@@ -370,8 +530,9 @@ export default function Game() {
           const nx = THREE.MathUtils.clamp(camera.position.x + delta.x, -87, 84), nz = THREE.MathUtils.clamp(camera.position.z + delta.z, -58, 54);
           if (!collides(nx, camera.position.z)) camera.position.x = nx;
           if (!collides(camera.position.x, nz)) camera.position.z = nz;
-          bob += dt * (sprint ? 13 : 8); camera.position.y = 1.68 + Math.sin(bob) * (sprint ? 0.055 : 0.032); weapon.position.y = -0.34 - Math.abs(Math.sin(bob)) * 0.025;
+          bob += dt * (sprint ? 13 : 8); weapon.position.y = -0.34 - Math.abs(Math.sin(bob)) * 0.025;
         }
+        camera.position.y = terrainHeight(camera.position.x, camera.position.z) + 1.72 + (moving ? Math.sin(bob) * (sprint ? 0.055 : 0.032) : 0);
         runtime.stamina = THREE.MathUtils.clamp(runtime.stamina + (sprint ? -27 : 18) * dt, 0, 100);
         runtime.invulnerable = Math.max(0, runtime.invulnerable - dt);
         if (runtime.reloading) {
@@ -382,27 +543,29 @@ export default function Game() {
         runtime.spawn -= dt;
         if (runtime.spawn <= 0) { spawnEnemy(undefined, undefined, Math.random() < 0.12); runtime.spawn = runtime.stage === 5 ? 0.7 + Math.random() * 0.7 : 2.8 + Math.random() * 2.3; }
         if (runtime.stage >= 3) {
-          const followTarget = new THREE.Vector3(camera.position.x + Math.sin(yaw) * 2.4, 0, camera.position.z + Math.cos(yaw) * 2.4);
+          const followX = camera.position.x + Math.sin(yaw) * 2.4, followZ = camera.position.z + Math.cos(yaw) * 2.4;
+          const followTarget = new THREE.Vector3(followX, terrainHeight(followX, followZ), followZ);
           const followDelta = followTarget.sub(npcAnchors.noah.position);
           if (followDelta.length() > 2.2) npcAnchors.noah.position.add(followDelta.normalize().multiplyScalar(3.1 * dt));
+          npcAnchors.noah.position.y = terrainHeight(npcAnchors.noah.position.x, npcAnchors.noah.position.z);
           npcAnchors.noah.rotation.y = Math.atan2(followDelta.x, followDelta.z);
         }
         for (const enemy of enemies) {
           if (!enemy.alive) continue; enemy.mixer?.update(dt);
-          const target = new THREE.Vector3(camera.position.x, 0, camera.position.z); const delta = target.sub(enemy.group.position); const distance = delta.length();
+          const target = new THREE.Vector3(camera.position.x, terrainHeight(camera.position.x, camera.position.z), camera.position.z); const delta = target.sub(enemy.group.position); const distance = delta.length();
           if (distance > 1.15) enemy.group.position.add(delta.normalize().multiplyScalar(enemy.speed * dt));
-          enemy.group.rotation.y = Math.atan2(delta.x, delta.z); enemy.group.position.y = Math.sin(performance.now() * 0.006 + enemy.group.id) * 0.025;
+          enemy.group.rotation.y = Math.atan2(delta.x, delta.z); enemy.group.position.y = terrainHeight(enemy.group.position.x, enemy.group.position.z);
           enemy.attack -= dt;
           if (distance < 1.45 && enemy.attack <= 0 && runtime.invulnerable <= 0) { runtime.health = Math.max(0, runtime.health - (enemy.health > 3 ? 18 : 11)); runtime.invulnerable = 0.45; enemy.attack = 0.9; tone(48, 0.2, 'sawtooth', 0.045); if (runtime.health <= 0) { runtime.active = false; document.exitPointerLock?.(); setDialogue(null); setScreen('dead'); } }
         }
 
         pickups.forEach((item, i) => {
-          if (item.taken) return; item.object.rotation.y += dt; item.object.position.y = 0.28 + Math.sin(performance.now() * 0.003 + i) * 0.08;
-          if (item.object.position.distanceTo(camera.position) < 1.4) { if (item.kind === 'health' && runtime.health < 100) runtime.health = Math.min(100, runtime.health + 35); else if (item.kind === 'ammo') runtime.reserve += 24; else return; item.taken = true; item.object.visible = false; tone(item.kind === 'health' ? 520 : 380, 0.12, 'sine', 0.025); }
+          if (item.taken) return; item.object.rotation.y += dt; item.object.position.y = item.baseY + Math.sin(performance.now() * 0.003 + i) * 0.08;
+          if (horizontalDistance(item.object.position, camera.position) < 1.4) { if (item.kind === 'health' && runtime.health < 100) runtime.health = Math.min(100, runtime.health + 35); else if (item.kind === 'ammo') runtime.reserve += 24; else return; item.taken = true; item.object.visible = false; tone(item.kind === 'health' ? 520 : 380, 0.12, 'sine', 0.025); }
         });
 
         if (runtime.stage === 5) { runtime.timer = Math.max(0, runtime.timer - dt); if (runtime.timer <= 0) { runtime.active = false; document.exitPointerLock?.(); setDialogue(null); setScreen('won'); } }
-        const objective = OBJECTIVES[runtime.stage]; const distance = camera.position.distanceTo(objective.target); runtime.distance = Math.round(distance);
+        const objective = OBJECTIVES[runtime.stage]; const distance = horizontalDistance(camera.position, objective.target); runtime.distance = Math.round(distance);
         runtime.prompt = distance < 3.2 ? (runtime.stage === 2 && nearEnemy(objective.target, 8) ? 'BEREICH SICHERN' : runtime.stage === 5 ? 'HALTE DIE STELLUNG' : '[E] INTERAGIEREN') : '';
 
         const currentLocation = LOCATIONS.find((item) => item.test(camera.position.x, camera.position.z))!;
@@ -412,14 +575,14 @@ export default function Game() {
         runtime.hudTick -= dt;
         if (runtime.hudTick <= 0) { setHud({ health: Math.round(runtime.health), ammo: runtime.ammo, reserve: runtime.reserve, stamina: Math.round(runtime.stamina), stage: runtime.stage, kills: runtime.kills, timer: Math.ceil(runtime.timer), prompt: runtime.prompt, reloading: runtime.reloading, distance: runtime.distance }); runtime.hudTick = 0.08; }
       }
-      renderer.render(scene, camera);
+      composer.render();
     };
     animate();
 
     return () => {
       disposed = true; apiRef.current = null; cancelAnimationFrame(frame); document.exitPointerLock?.();
       removeEventListener('keydown', onKeyDown); removeEventListener('keyup', onKeyUp); removeEventListener('mousemove', onMouseMove); removeEventListener('resize', resize); document.removeEventListener('pointerlockchange', onPointerLock); canvas.removeEventListener('mousedown', onMouseDown);
-      renderer.dispose(); scene.traverse((object) => { if (object instanceof THREE.Mesh) { object.geometry?.dispose(); const mats = Array.isArray(object.material) ? object.material : [object.material]; mats.forEach((mat) => mat?.dispose()); } });
+      composer.dispose(); renderer.dispose(); scene.traverse((object) => { if (object instanceof THREE.Mesh) { object.geometry?.dispose(); const mats = Array.isArray(object.material) ? object.material : [object.material]; mats.forEach((mat) => mat?.dispose()); } });
     };
   }, []);
 
@@ -461,7 +624,7 @@ export default function Game() {
       {screen === 'paused' && <section className="overlay-card compact"><p className="eyebrow">MISSION PAUSIERT</p><h2>Bleib leise.</h2><p>Klicke auf Weiterspielen, um die Maus wieder zu erfassen.</p><button type="button" onClick={resume}>WEITERSPIELEN <span>→</span></button></section>}
       {screen === 'dead' && <section className="overlay-card"><p className="eyebrow danger">ELIAS · SIGNAL VERLOREN</p><h2>Tannwald behält dich.</h2><p>{hud.kills} Infizierte sind gefallen. Mara und Noah warten noch immer am Funkturm.</p><button type="button" onClick={start}>MISSION NEU STARTEN <span>→</span></button></section>}
       {screen === 'won' && <section className="overlay-card win"><p className="eyebrow">05:42 UHR · KONVOI EINGETROFFEN</p><h2>Der Morgen findet euch.</h2><p>Das Gegenmittel ist gesichert. Mara und Noah verlassen Tannwald – während Dr. Falks letzte Aufzeichnung im Rauschen verschwindet.</p><div className="result"><span>{hud.kills}<small>INFIZIERTE</small></span><span>{hud.health}<small>GESUNDHEIT</small></span></div><button type="button" onClick={start}>NOCH EINMAL <span>↻</span></button></section>}
-      <footer className="credit">3D-ASSETS: KENNEY · CC0 · DESKTOP-SPIEL</footer>
+      <footer className="credit">3D-ASSETS & ANIMATIONEN: KENNEY · CC0 · DESKTOP-SPIEL</footer>
     </main>
   );
 }
