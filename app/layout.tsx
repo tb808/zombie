@@ -14,17 +14,17 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.SITE_URL ?? 'http://localhost:3000'),
-  title: 'Nachtwache — Ein Low-Poly-Zombie-Spiel',
-  description: 'Kämpfe dich durch Tannwald und bringe das letzte Funksignal durch.',
+  title: 'Nachtwache — First-Person Zombie Survival',
+  description: 'Durchquere fünf Orte in Tannwald, rette Überlebende und stelle dich den Infizierten.',
   openGraph: {
     title: 'Nachtwache — Das letzte Signal',
-    description: 'Ein storygetriebenes Low-Poly-Zombie-Survivalspiel in Tannwald.',
+    description: 'Ein storygetriebener First-Person-Zombie-Shooter mit fünf Schauplätzen.',
     images: [{ url: '/og.png', width: 1920, height: 1080, alt: 'Die Low-Poly-Welt von Nachtwache' }],
   },
   twitter: {
     card: 'summary_large_image',
     title: 'Nachtwache — Das letzte Signal',
-    description: 'Ein storygetriebenes Low-Poly-Zombie-Survivalspiel in Tannwald.',
+    description: 'Ein storygetriebener First-Person-Zombie-Shooter mit fünf Schauplätzen.',
     images: ['/og.png'],
   },
 };
