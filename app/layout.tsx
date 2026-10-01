@@ -15,6 +15,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.SITE_URL ?? 'http://localhost:3000'),
   title: 'Nachtwache — First-Person Zombie Survival',
+  icons: { icon: '/favicon.svg' },
   description: 'Durchquere fünf Orte in Tannwald, rette Überlebende und stelle dich den Infizierten.',
   openGraph: {
     title: 'Nachtwache — Das letzte Signal',
