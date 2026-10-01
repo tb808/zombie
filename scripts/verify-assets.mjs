@@ -4,6 +4,7 @@ import { Box3, Vector3, Texture, AnimationMixer } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { LOOT, NOTES, segmentBlocked, newInventory, ITEMS } from '../app/world.ts';
+import { CITY_LOOT } from '../app/city.ts';
 
 const root = new URL('../public/models/kenney/', import.meta.url);
 const buffer = path => { const b = readFileSync(new URL(path, root)); return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength); };
@@ -74,6 +75,6 @@ assert(segmentBlocked(0, -5, 0, 5, wall));
 assert(!segmentBlocked(-5, 3, 5, 3, wall));
 assert(!segmentBlocked(-5, 0, -3, 0, wall));
 const a = newInventory(), b = newInventory(); a.medkit = 0; assert.equal(b.medkit, 1);
-for (const kind of Object.keys(ITEMS)) assert(LOOT.some(p => p.kind === kind));
+for (const kind of Object.keys(ITEMS)) assert([...LOOT,...CITY_LOOT].some(p => p.kind === kind));
 console.log(`${models.size} GLB models valid; ${obstacles.length} collision boxes; ${targets.length} reachable targets; cover and inventory checks passed.`);
 

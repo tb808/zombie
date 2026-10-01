@@ -4,11 +4,15 @@ export const ITEMS = {
   battery: { name: 'Batterie', key: '3', purpose: 'Lädt die Taschenlampe vollständig', color: '#90dce5', limit: 5 },
   flare: { name: 'Leuchtfackel', key: '4', purpose: 'Lenkt Infizierte 12 s vom Spieler ab', color: '#f99d62', limit: 5 },
   scrap: { name: 'Ersatzteile', key: '5', purpose: '3 Teile: Sender verstärken (−10 s)', color: '#c1cbbf', limit: 12 },
+  water: { name: 'Wasser', key: '6', purpose: 'Stillt Durst; verhindert Erschöpfung', color: '#8acde0', limit: 5 },
+  antibiotic: { name: 'Antibiotika', key: '7', purpose: 'Behandelt die Infektion vollständig', color: '#b7a5e4', limit: 3 },
+  armor: { name: 'Schutzweste', key: '8', purpose: 'Rüstet 100 Schutz aus; absorbiert 55% Schaden', color: '#99bba0', limit: 2 },
 } as const;
 export type ItemKind = keyof typeof ITEMS;
-export type LootKind = ItemKind | 'ammo';
+export type LootKind = ItemKind | 'ammo' | 'shells' | 'rifleAmmo';
+export const lootName = (kind: LootKind) => kind === 'ammo' ? '9 mm' : kind === 'shells' ? '12/70 Schrot' : kind === 'rifleAmmo' ? '5.56 mm' : ITEMS[kind].name;
 export type Inventory = Record<ItemKind, number>;
-export const newInventory = (): Inventory => ({ medkit: 1, ration: 1, battery: 1, flare: 1, scrap: 0 });
+export const newInventory = (): Inventory => ({ medkit: 1, ration: 1, battery: 1, flare: 1, scrap: 0, water: 2, antibiotic: 0, armor: 0 });
 export const REGIONS = [
   { name: 'Rangerstation', x: -60, z: -33, loot: 'Verbände · Rationen', detail: 'Das letzte warme Feuer. Mara hält hier Wache.' },
   { name: 'Dorf Tannwald', x: -22, z: -4, loot: 'Rationen · Batterien · Munition', detail: 'Verlassene Marktstände und eine nie beendete Evakuierung.' },

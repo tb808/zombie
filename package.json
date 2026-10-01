@@ -8,9 +8,11 @@
   "scripts": {
     "dev": "vinext dev",
     "build": "vinext build",
+    "build:pages": "node scripts/build-pages.mjs",
     "start": "vinext start",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-    "check:assets": "node --experimental-strip-types scripts/verify-assets.mjs"
+    "check:assets": "node --experimental-strip-types scripts/verify-assets.mjs",
+    "check:gameplay": "node --experimental-strip-types scripts/verify-survival.mjs && node --experimental-transform-types scripts/verify-zombie-animation.mjs"
   },
   "dependencies": {
     "next": "16.2.6",
