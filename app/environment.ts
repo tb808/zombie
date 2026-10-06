@@ -15,7 +15,7 @@ export function daylightAt(elapsed: number) {
   return { hours, angle, elevation, daylight, twilight, night: 1 - daylight,
     sunIntensity: 3.2 * smooth(0, .35, elevation),
     moonIntensity: .28 * smooth(0, .3, -elevation),
-    skyIntensity: .32 + daylight * 1.65,
+    skyIntensity: .22 + daylight * 1.1,
     fogDensity: .0025 + (1 - daylight) * .002,
     period: hours < 5.5 || hours >= 19 ? 'NACHT' : hours < 7 ? 'MORGENDÄMMERUNG' : hours < 17.5 ? 'TAG' : 'ABENDDÄMMERUNG',
     clock: `${String(Math.floor(hours)).padStart(2, '0')}:${String(Math.floor(hours % 1 * 60)).padStart(2, '0')}`,

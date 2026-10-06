@@ -9,7 +9,7 @@ button { font:inherit; }
 .game-canvas { position:absolute; inset:0; width:100%; height:100%; outline:0; cursor:crosshair; }
 .vignette,.grain { position:absolute; z-index:3; inset:0; pointer-events:none; }
 .vignette { background:radial-gradient(circle at center,transparent 55%,rgba(2,4,3,.08) 82%,rgba(0,0,0,.22) 100%); }
-.grain { opacity:.05; mix-blend-mode:screen; background:repeating-linear-gradient(0deg,transparent 0 3px,rgba(255,255,255,.035) 4px),repeating-linear-gradient(90deg,transparent 0 7px,rgba(217,255,67,.012) 8px); }
+.grain { opacity:.018; mix-blend-mode:screen; background:repeating-linear-gradient(0deg,transparent 0 3px,rgba(255,255,255,.025) 4px); }
 
 .title-card,.overlay-card { position:absolute; z-index:12; top:50%; left:7vw; transform:translateY(-52%); width:min(670px,86vw); }
 .title-card::before { content:""; position:absolute; z-index:-1; left:-7vw; top:-100vh; width:76vw; height:200vh; background:linear-gradient(90deg,#050807f5 0%,#050807d8 52%,transparent 100%); }
@@ -64,3 +64,26 @@ h1 span { display:block; color:transparent; -webkit-text-stroke:2px var(--cream)
 @media(max-width:1150px){.quickbelt{bottom:102px}.weapon-hint{bottom:87px;font-size:9px}.radio-message{bottom:max(185px,26%)}}
 @media(max-width:1150px){.radio-message{bottom:max(185px,26%)}.loot-notice{top:180px;max-width:70vw}}
 .weapon-hint{bottom:130px}.location-card h2{font-size:clamp(24px,3.2vw,40px)}.location-card p{max-width:430px;margin:8px auto;line-height:1.6}.fps-ammo>small{display:block;max-width:220px}.map-panel svg{min-height:330px}
+
+/* Conversations keep the scene visible and give each statement its own subtitle. */
+.dialogue-subtitles{position:absolute;z-index:15;left:0;right:0;bottom:0;padding:55px 8vw 7vh;text-align:center;background:linear-gradient(transparent,#030605b8 40%,#030605e8);color:#fff;text-shadow:0 2px 4px #000;pointer-events:none}
+.dialogue-subtitles>small{display:block;margin-bottom:13px;color:#e5d4a0;font-size:12px;font-weight:700;letter-spacing:.2em}
+.dialogue-subtitles>p{max-width:850px;min-height:2.8em;margin:0 auto 20px;font-size:clamp(20px,2.2vw,29px);line-height:1.4;font-weight:500;text-wrap:balance;animation:subtitle-in .16s ease-out}
+.dialogue-subtitles>button{pointer-events:auto;background:transparent;border:0;color:#bfc6bc;font-size:12px;cursor:pointer;padding:8px 14px;text-shadow:0 1px 3px #000}
+.dialogue-subtitles>button:hover,.dialogue-subtitles>button:focus-visible{color:#fff;outline:1px solid #e5d4a0}
+.dialogue-subtitles>button span{margin-left:18px;color:#89978c;font-size:11px}.dialogue-subtitles kbd{color:#e5d4a0}
+@keyframes subtitle-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.house-status{position:absolute;right:24px;top:145px;display:grid;gap:7px;padding:15px 18px;max-width:300px;border-left:2px solid #b9ce8d;background:#101c15d9;color:#ced7bc;font-size:11px}.house-status b{font-size:15px}.house-status span:last-child{color:#dbbf88;font-size:10px}
+.shelter-card{max-height:90dvh;overflow:auto;width:min(700px,90vw)}.shelter-card h2{font-size:clamp(26px,3vw,40px)}.shelter-card p{font-size:14px;line-height:1.6}.shelter-card ul{padding-left:20px;font-size:14px;line-height:1.9;color:#c1d0b1}.shelter-actions{display:grid;grid-template-columns:1fr 1fr;gap:14px}.shelter-actions button{min-width:0;line-height:1.6;font-size:10px;padding:15px;box-shadow:3px 3px 0 #020302}.overlay-card button:disabled{opacity:.4;cursor:default;transform:none;filter:none}.shelter-actions .secondary{grid-column:1/-1;background:#28392d;color:#d7e3cc}.shelter-notice{color:#e0c88c!important;border-left:2px solid #b7c480;padding-left:12px}.overlay-card>button+button{margin-top:18px}.quest-log summary{cursor:pointer;color:#d1daba;font-size:13px}.quest-log details p{margin:7px 0;font-size:12px}
+@media(max-width:900px){.house-status{top:auto;bottom:160px;right:15px;max-width:240px}.shelter-actions{grid-template-columns:1fr}.shelter-card{padding:25px}}
+.field-journal .journal-layout{display:block}.equipment-layout{padding:0 30px 30px}.equipment-layout .inventory-panel{border-left:0;max-width:850px}
+.world-map{border:1px solid #63705a;background:#18251d;overflow:hidden}.world-map .eyebrow{display:block;margin:0 0 5px;font-size:9px;color:#bdc69e}
+.map-toolbar{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:18px 20px}.map-toolbar h3{margin:0;font-size:20px;color:#e0e4d1;letter-spacing:-.02em}
+.map-buttons{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.field-journal .map-buttons button{padding:9px 12px;font-size:12px;border-color:#52634f}.map-buttons output{min-width:62px;text-align:center;font-size:12px;color:#c5cdb5;font-variant-numeric:tabular-nums}
+.map-viewport{position:relative;background:#b7bea0;overflow:hidden}.map-panel .map-viewport svg{display:block;width:100%;height:clamp(280px,calc(90dvh - 380px),760px);min-height:0;max-height:none;border:0;cursor:grab;touch-action:none;user-select:none}.map-viewport svg:active{cursor:grabbing}.map-viewport svg:focus-visible{outline:3px solid #6c8c65;outline-offset:-3px}
+.map-place-label{fill:#354336;paint-order:stroke;stroke:#dbd7be;stroke-width:1.6;stroke-linejoin:round;font-weight:700}
+.map-compass{position:absolute;top:18px;right:20px;display:grid;justify-items:center;color:#374d3e;font-size:13px;font-weight:700;pointer-events:none}.map-compass span{font-size:35px;line-height:1.2}
+.map-caption{display:flex;align-items:center;flex-wrap:wrap;gap:12px 24px;padding:13px 20px;font-size:11px;color:#b5c3a9}.map-caption>span{display:flex;align-items:center;gap:7px}.map-caption>span:last-child{margin-left:auto;color:#91a18b}
+.map-dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#246b88;border:1px solid #eef6ea}.map-dot.target{background:#b97529;border-color:#fff5cf;border-radius:0;transform:rotate(45deg)}.map-dot.refuge{border-color:#79aa80;background:#386b4d;border-radius:0}
+.map-missing{padding:60px 20px;text-align:center;border:1px dashed #64715b;color:#c6ceb7}.map-missing p{font-size:14px;line-height:1.7}
+@media(max-width:760px){.map-panel{padding:16px}.map-toolbar{align-items:flex-start;flex-direction:column;padding:15px;gap:15px}.map-buttons{gap:6px}.field-journal .map-buttons button{padding:8px}.map-panel .map-viewport svg{height:clamp(260px,calc(96dvh - 400px),540px);min-height:0}.map-caption>span:last-child{margin-left:0;line-height:1.5}.dialogue-subtitles{padding:40px 6vw 5vh}.dialogue-subtitles>p{font-size:20px}.field-journal nav{gap:3px;flex-wrap:wrap}.field-journal nav button{padding:10px}.equipment-layout{padding:0 10px 20px}}

@@ -1,0 +1,28 @@
+export const CAMPAIGN = [
+  { id: 'intro', place: 'RANGERSTATION', title: 'Sprich mit Mara', detail: 'E am Lagerfeuer: erfahre, was in Tannwald passiert ist.', x: -53, z: -36 },
+  { id: 'map', place: 'ORIENTIERUNG', title: 'Plane deinen Weg', detail: 'Öffne Maras Karte mit M. Zoome und suche das Dorf und die Unterschlüpfe.', x: -53, z: -36 },
+  { id: 'supplies', place: 'RANGERSTATION', title: 'Packe Vorräte ein', detail: 'Sammle den Verband am Lager mit E. J zeigt Vorräte und ihre Wirkung.', x: -60, z: -36 },
+  { id: 'water', place: 'ÜBERLEBEN', title: 'Trinke vor dem Aufbruch', detail: 'Drücke 6 für Wasser. Durst bremst deine Erholung; 2 gibt Ausdauer.', x: -60, z: -36 },
+  { id: 'aim', place: 'ÜBUNGSPLATZ', title: 'Übe einen gezielten Schuss', detail: 'Halte die rechte Maustaste und triff die rote Zielscheibe. Schüsse locken Infizierte an.', x: -49, z: -34 },
+  { id: 'reload', place: 'ÜBUNGSPLATZ', title: 'Lade deine Pistole nach', detail: 'R lädt fehlende Patronen aus der Reserve. Ein Waffenwechsel unterbricht das Nachladen.', x: -49, z: -34 },
+  { id: 'axe', place: 'ÜBUNGSPLATZ', title: 'Teste die Feuerwehraxt', detail: 'Q wechselt zur Axt. Triff die Zielscheibe aus weniger als 2,6 m. Nahkampf kostet Ausdauer.', x: -49, z: -34 },
+  { id: 'fuel', place: 'DORF TANNWALD', title: 'Hole die Brennstoffzelle', detail: 'Gehe leise zum Markt. Shift sprintet, verbraucht Ausdauer und macht Geräusche.', x: -19, z: -4 },
+  { id: 'flare', place: 'ALTER FRIEDHOF', title: 'Schaffe einen Weg für Noah', detail: 'Wirf mit 4 eine Fackel beim Friedhof. Infizierte folgen dem Geräusch; nutze die Ablenkung.', x: 8, z: 5 },
+  { id: 'noah', place: 'ALTER FRIEDHOF', title: 'Befreie Noah', detail: 'Sichere den Bereich am Mausoleum und sprich mit Noah. Er folgt dir ab jetzt.', x: 17, z: 15 },
+  { id: 'planks', place: 'FORSTHAUS', title: 'Besorge Baumaterial', detail: 'Sammle Bretter und Ersatzteile vor dem Forsthaus. Vier Fenster brauchen je zwei Bretter.', x: -77, z: 15 },
+  { id: 'house', place: 'FORSTHAUS', title: 'Richte einen Unterschlupf ein', detail: 'Räume das Haus. E an vier Fenstern und zwei Türen; richte das Bett ein und aktiviere den Ort.', x: -77, z: 6 },
+  { id: 'lamp', place: 'NACHTWACHE', title: 'Prüfe deine Taschenlampe', detail: 'F schaltet Licht ein. Es verbraucht Batterie; 3 lädt die Lampe nach.', x: -77, z: 6 },
+  { id: 'sleep', place: 'FORSTHAUS', title: 'Überstehe deine erste Nacht', detail: 'E am Bett: setze deinen Respawnpunkt. Warte dort bis 19 Uhr und schlafe bis 06 Uhr.', x: -77, z: 6 },
+  { id: 'weber', place: 'ST. ANNA', title: 'Lass dir das Labor erklären', detail: 'Sprich mit Dr. Weber im Schutzhof der Notaufnahme. Sie erklärt Behandlung und Laborzugang.', x: 114, z: -62 },
+  { id: 'lenz', place: 'SCHULHOF', title: 'Finde den Mechaniker', detail: 'Lenz braucht Hilfe mit dem Strom. Sichere Häuser in der Oststadt als weitere Rückzugsorte.', x: 120, z: 85 },
+  { id: 'fuse', place: 'WERKSTATT', title: 'Berge Sicherung und Ersatzteile', detail: 'Sammle die Generatorsicherung und mindestens zwei Ersatzteile in der Werkstatt.', x: 181, z: -18 },
+  { id: 'power', place: 'SCHULHOF', title: 'Stelle den Strom wieder her', detail: 'Setze Sicherung und zwei Ersatzteile am Generator ein. Sein Lärm zieht Infizierte an.', x: 120, z: 90 },
+  { id: 'shotgun', place: 'POLIZEI', title: 'Öffne die Waffenkammer', detail: 'Lenz hat dir den Schlüssel gegeben. Öffne die Sicherheitstür mit E und hole die Jagdflinte.', x: 181, z: -74 },
+  { id: 'archive', place: 'LAZARUS-ARCHIV', title: 'Sichere den Laborzugang', detail: 'Hole die Keycard am Kontrollpunkt Nord (184 / −136). Öffne das Archiv und lies den Abbruchbefehl.', x: 120, z: -136 },
+  { id: 'serum', place: 'ALTE KLINIK', title: 'Sichere das Gegenmittel', detail: 'Weber hat den Behälter im Laborcontainer markiert. Noah begleitet dich.', x: 48, z: 23 },
+  { id: 'repair', place: 'FUNKTURM 07', title: 'Verstärke den Sender', detail: 'Sammle drei Ersatzteile und setze sie am Funkturm mit 5 ein.', x: 66, z: -25 },
+  { id: 'tower', place: 'FUNKTURM 07', title: 'Rufe den Konvoi', detail: 'Bringe Noah zum Sender. Er muss innerhalb von zwölf Metern sein. E startet den Notruf.', x: 66, z: -25 },
+  { id: 'defend', place: 'LETZTE STELLUNG', title: 'Halte die Linie', detail: 'Bleibe beim Sender und verteidige dich bis zur Ankunft des Konvois.', x: 66, z: -25 },
+] as const;
+export type CampaignId = typeof CAMPAIGN[number]['id'];
+export const missionIndex = (id: CampaignId) => CAMPAIGN.findIndex(m => m.id === id);

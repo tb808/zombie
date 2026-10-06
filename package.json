@@ -13,7 +13,10 @@
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "check:assets": "node --experimental-strip-types scripts/verify-assets.mjs",
     "check:gameplay": "node --experimental-strip-types scripts/verify-survival.mjs && node --experimental-transform-types scripts/verify-zombie-animation.mjs",
-    "check:environment": "node --experimental-strip-types scripts/verify-environment.mjs"
+    "check:environment": "node --experimental-strip-types scripts/verify-environment.mjs",
+    "check:safehouses": "node --experimental-strip-types scripts/verify-safehouses.mjs",
+    "check:interiors": "node --experimental-strip-types scripts/verify-interiors.mjs",
+    "check:graphics": "node --experimental-strip-types scripts/verify-graphics.mjs"
   },
   "dependencies": {
     "next": "16.2.6",
