@@ -12,7 +12,8 @@
     "start": "vinext start",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "check:assets": "node --experimental-strip-types scripts/verify-assets.mjs",
-    "check:gameplay": "node --experimental-strip-types scripts/verify-survival.mjs && node --experimental-transform-types scripts/verify-zombie-animation.mjs"
+    "check:gameplay": "node --experimental-strip-types scripts/verify-survival.mjs && node --experimental-transform-types scripts/verify-zombie-animation.mjs",
+    "check:environment": "node --experimental-strip-types scripts/verify-environment.mjs"
   },
   "dependencies": {
     "next": "16.2.6",

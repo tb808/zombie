@@ -14,6 +14,7 @@ import { WORLD, ZOMBIES, WEAPONS, freshArsenal, makeBrain, think, transition, fi
 import { ZombieAnimator } from './zombieAnimation';
 import { CITY_PLACES, CITY_ROADS, CITY_LOOT, CITY_NPCS, DISCOVERIES, buildCity } from './city';
 import { assetPath } from './assetPath';
+import { daylightAt, REFUGES, refugeAt, refugeWalls, footprintsOverlap } from './environment';
 const WORLD_LOOT: {kind:LootKind;x:number;z:number;count:number}[] = [...LOOT,...CITY_LOOT];
 
 type Screen = 'title' | 'playing' | 'paused' | 'dead' | 'won' | 'journal';
@@ -140,36 +141,48 @@ export default function Game() {
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 0.92;
+    renderer.toneMappingExposure = 1.05;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x07100f);
-    scene.fog = new THREE.FogExp2(0x152321, 0.0125);
+    scene.background = new THREE.Color(0x91bbda);
+    scene.fog = new THREE.FogExp2(0x91bbda, 0.0025);
     const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 220);
     camera.rotation.order = 'YXZ';
     camera.position.set(START.x, terrainHeight(START.x, START.z) + 1.72, START.z);
     scene.add(camera);
 
-    scene.add(new THREE.HemisphereLight(0x8fb3ae, 0x172018, 1.55));
-    const moonLight = new THREE.DirectionalLight(0xc8e2dc, 3.4);
+    const skyLight = new THREE.HemisphereLight(0xcce6ff, 0x827762, 1.9);
+    scene.add(skyLight);
+    const moonLight = new THREE.DirectionalLight(0xb4cafa, .28);
     moonLight.position.set(-35, 50, 18);
     moonLight.castShadow = true;
     moonLight.shadow.mapSize.set(2048, 2048);
     moonLight.shadow.camera.left = -60; moonLight.shadow.camera.right = 60;
     moonLight.shadow.camera.top = 60; moonLight.shadow.camera.bottom = -60;
+    moonLight.shadow.normalBias = .08;
     scene.add(moonLight);
+    const sunLight = new THREE.DirectionalLight(0xfff2da, 3.2);
+    sunLight.castShadow = true;
+    sunLight.shadow.mapSize.set(2048, 2048);
+    Object.assign(sunLight.shadow.camera, { left: -65, right: 65, top: 65, bottom: -65, near: 1, far: 180 });
+    sunLight.shadow.bias = -.00025;
+    sunLight.shadow.normalBias = .08;
+    scene.add(sunLight, sunLight.target, moonLight.target);
+    const sun = new THREE.Mesh(new THREE.SphereGeometry(2, 16, 12), new THREE.MeshBasicMaterial({ color: 0xfff2cf, toneMapped: false }));
+    scene.add(sun);
     const moon = new THREE.Mesh(new THREE.SphereGeometry(4, 12, 8), new THREE.MeshBasicMaterial({ color: 0xd8e4dc }));
     moon.position.set(-55, 52, -80);
     scene.add(moon);
 
+    const skyMaterial = new THREE.ShaderMaterial({
+      side: THREE.BackSide, depthWrite: false,
+      uniforms: { low: { value: new THREE.Color() }, high: { value: new THREE.Color() } },
+      vertexShader: 'varying vec3 vP; void main(){vP=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
+      fragmentShader: 'varying vec3 vP; uniform vec3 low; uniform vec3 high; void main(){float h=clamp(normalize(vP).y,0.,1.);gl_FragColor=vec4(mix(low,high,smoothstep(0.,.85,h)),1.);\n#include <tonemapping_fragment>\n#include <colorspace_fragment>\n}',
+    });
     const sky = new THREE.Mesh(
       new THREE.SphereGeometry(210, 28, 16),
-      new THREE.ShaderMaterial({
-        side: THREE.BackSide,
-        depthWrite: false,
-        vertexShader: 'varying vec3 vP; void main(){vP=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
-        fragmentShader: 'varying vec3 vP; void main(){float h=clamp(normalize(vP).y*.5+.5,0.,1.);vec3 low=vec3(.035,.075,.068);vec3 high=vec3(.008,.018,.026);gl_FragColor=vec4(mix(low,high,smoothstep(.15,.86,h)),1.);}',
-      }),
+      skyMaterial,
     );
     scene.add(sky);
     const starPositions: number[] = [];
@@ -178,12 +191,13 @@ export default function Game() {
       starPositions.push(Math.cos(angle) * Math.cos(elevation) * radius, Math.sin(elevation) * radius, Math.sin(angle) * Math.cos(elevation) * radius);
     }
     const starGeometry = new THREE.BufferGeometry(); starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starPositions, 3));
-    scene.add(new THREE.Points(starGeometry, new THREE.PointsMaterial({ color: 0xc7d9d4, size: 0.16, transparent: true, opacity: 0.7, sizeAttenuation: true })));
+    const stars = new THREE.Points(starGeometry, new THREE.PointsMaterial({ color: 0xc7d9ed, size: 0.16, transparent: true, opacity: 0, sizeAttenuation: true, depthWrite: false }));
+    scene.add(stars);
 
     const terrainGeometry = new THREE.PlaneGeometry(460, 390, 153, 130);
     const terrainPosition = terrainGeometry.getAttribute('position') as THREE.BufferAttribute;
     const terrainColors: number[] = [];
-    const lowColor = new THREE.Color(0x24372d), highColor = new THREE.Color(0x435344), tempColor = new THREE.Color();
+    const lowColor = new THREE.Color(0x526b3d), highColor = new THREE.Color(0x7e875b), tempColor = new THREE.Color();
     for (let i = 0; i < terrainPosition.count; i += 1) {
       const x = terrainPosition.getX(i) + 30, z = -terrainPosition.getY(i) - 12, height = terrainHeight(x, z); terrainPosition.setX(i,x); terrainPosition.setY(i,-z);
       terrainPosition.setZ(i, height);
@@ -216,7 +230,7 @@ export default function Game() {
 
     const composer = new EffectComposer(renderer);
     composer.addPass(new RenderPass(scene, camera));
-    composer.addPass(new UnrealBloomPass(new THREE.Vector2(1, 1), 0.36, 0.55, 0.82));
+    composer.addPass(new UnrealBloomPass(new THREE.Vector2(1, 1), 0.14, 0.45, 1.1));
     composer.addPass(new OutputPass());
 
     const loader = new GLTFLoader();
@@ -273,11 +287,12 @@ export default function Game() {
       });
       return object;
     };
-    const place = (name: string, x: number, z: number, scale = 1, rotation = 0, y = 0) => {
+    const placements: { anchor: THREE.Group; required: boolean; ready: Promise<void> }[] = [];
+    const place = (name: string, x: number, z: number, scale = 1, rotation = 0, y = 0, required = false) => {
       const anchor = new THREE.Group();
       anchor.position.set(x, terrainHeight(x, z) + y, z); anchor.rotation.y = rotation;
       scene.add(anchor);
-      load(name).then((asset) => {
+      const ready = load(name).then((asset) => {
         if (disposed) return;
         const model = prep(cloneSkeleton(asset.scene)); model.updateMatrixWorld(true);
         const initialBounds = new THREE.Box3().setFromObject(model), size = initialBounds.getSize(new THREE.Vector3());
@@ -286,12 +301,13 @@ export default function Game() {
         const finalBounds = new THREE.Box3().setFromObject(model); model.position.y -= finalBounds.min.y;
         anchor.add(model);
       }).catch(() => reportAssetError(name));
+      placements.push({ anchor, required, ready });
       return anchor;
     };
 
     const obstacles: { x: number; z: number; hx: number; hz: number }[] = [];
     const building = (name: string, x: number, z: number, scale: number, rotation: number, hx: number, hz: number) => {
-      const anchor = place(name, x, z, scale, rotation);
+      const anchor = place(name, x, z, scale, rotation, 0, true);
       const obstacle = { x, z, hx: (rotation % Math.PI === 0 ? hx : hz), hz: (rotation % Math.PI === 0 ? hz : hx) };
       obstacles.push(obstacle);
       load(name).then(() => {
@@ -328,14 +344,14 @@ export default function Game() {
 
     // Ranger station
     building('suburban-building-type-a', -58, -28, 1.65, Math.PI, 4.8, 4.2);
-    building('suburban-building-type-h', -70, -24, 1.45, Math.PI / 2, 3.8, 3.2);
+    building('suburban-building-type-h', -72, -26, 1.15, Math.PI / 2, 3.8, 3.2);
     place('tent', -60, -40, 1.45, 0.5); place('campfire-pit', -54, -35, 1.2);
     place('chest', -61, -34, 1.1, 0.4); place('resource-planks', -68, -31, 1.3, 0.2);
     for (let i = 0; i < 8; i += 1) place(i % 2 ? 'pine' : 'pine-crooked', -78 + i * 4.8, -49 - (i % 3) * 2, 1.05 + (i % 2) * 0.15, i);
 
-    // Dense village street
+    // Village homes flank a clear street and open courtyards.
     const villageBuildings = [
-      ['suburban-building-type-c', -37, -17, 1.75, 0], ['suburban-building-type-f', -25, -18, 1.7, 0],
+      ['suburban-building-type-c', -37, -17, 1.55, 0], ['suburban-building-type-f', -25, -18, 1.7, 0],
       ['suburban-building-type-k', -11, -17, 1.65, 0], ['suburban-building-type-n', -35, 7, 1.7, Math.PI],
       ['suburban-building-type-r', -22, 8, 1.75, Math.PI], ['suburban-building-type-t', -8, 8, 1.55, Math.PI],
     ] as const;
@@ -349,7 +365,7 @@ export default function Game() {
 
     // Cemetery
     building('crypt-large', 20, 24, 1.65, Math.PI, 5.2, 4.2);
-    for (let row = 0; row < 4; row += 1) for (let col = 0; col < 5; col += 1) {
+    for (let row = 0; row < 3; row += 1) for (let col = 0; col < 4; col += 1) {
       const graves = ['gravestone-bevel', 'gravestone-round', 'gravestone-cross', 'gravestone-broken'];
       place(graves[(row + col) % graves.length], 5 + col * 4.2 + (row % 2), 8 + row * 4.1, 1 + (col % 2) * 0.1, (col - row) * 0.15);
     }
@@ -361,7 +377,7 @@ export default function Game() {
     building('industrial-building-a', 44, 29, 1.8, Math.PI, 5.5, 4.5);
     building('industrial-building-f', 57, 28, 1.85, Math.PI, 5, 4.5);
     building('industrial-building-c', 50, 6, 1.75, 0, 5.3, 4.4);
-    building('industrial-building-j', 66, 5, 1.7, 0, 4.4, 3.8);
+    building('industrial-building-j', 71, 5, 1.7, 0, 4.4, 3.8);
     building('industrial-building-m', 74, 27, 1.65, Math.PI / 2, 4, 4.8);
     place('industrial-chimney-large', 60, 34, 2.2); place('industrial-detail-tank', 38, 20, 1.9, 0.4);
     for (let i = 0; i < 9; i += 1) place(i % 3 ? 'barrel' : 'box', 37 + i * 4.5, 7 + (i % 2) * 3, 1.05, i);
@@ -382,14 +398,14 @@ export default function Game() {
     place('fire-basket', 60, -30, 1.3); place('fire-basket', 72, -30, 1.3);
     for (let i = 0; i < 10; i += 1) place(i % 2 ? 'box' : 'barrel', 56 + (i % 5) * 5, -40 + Math.floor(i / 5) * 4, 1.1, i);
 
-    // Trees, rocks and roadside clutter keep the route dense.
-    for (let i = 0; i < 92; i += 1) {
+    // Trees and occasional roadside props leave space between landmarks.
+    for (let i = 0; i < 60; i += 1) {
       const x = -88 + (i * 31 % 176); const z = -59 + (i * 47 % 118);
       if (Math.hypot(x + 60, z + 33) < 20 || Math.abs(z + 7) < 8 || (x > -45 && x < 78 && z > -22 && z < 38)) continue;
       place(i % 3 ? 'suburban-tree-large' : 'pine-crooked', x, z, i % 3 ? 1.75 + (i % 4) * 0.12 : 1.25, i * 1.7);
       if (i % 4 === 0) place(`rock-${(['a', 'b', 'c'] as const)[i % 3]}`, x + 2.2, z - 1.2, 1 + (i % 2) * 0.4, i);
     }
-    for (let i = 0; i < 58; i += 1) {
+    for (let i = 0; i < 30; i += 1) {
       const x = -82 + (i * 23 % 164), z = -52 + (i * 37 % 104);
       if (Math.abs(z + 7) > 4) place(i % 3 ? 'grass-large' : 'grass', x, z, 1.1 + (i % 4) * 0.18, i * 0.7);
     }
@@ -416,13 +432,32 @@ export default function Game() {
     REGIONS.forEach((region, i) => paintedBoard(`${region.name.toUpperCase()} / SEKTOR 0${i + 1}`, region.x - 2, region.z - 8, '#d9ff83'));
     const city = buildCity(scene, terrainHeight, obstacles, paintedBoard);
     const interiorLight = new THREE.PointLight(0xb1c8ad,18,24,2); scene.add(interiorLight);
-    const streetLight = new THREE.PointLight(0xe1bc78,0,27,2); scene.add(streetLight);
+    // Lamps stay attached to their poles rather than following the player.
+    const streetLights: THREE.PointLight[] = [];
+    for (const x of [92,151,212]) for (const z of [-104,-46,4,54,104]) {
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(.07,.1,5,6),gunPostMaterial);
+      pole.position.set(x+5.5,terrainHeight(x+5.5,z)+2.5,z); scene.add(pole);
+      const lamp = new THREE.PointLight(0xffdc9d,0,22,2); lamp.position.set(pole.position.x,pole.position.y+2.3,z); scene.add(lamp); streetLights.push(lamp);
+    }
+    const refugeLights: THREE.PointLight[] = [];
+    for (const refuge of REFUGES) {
+      const group = new THREE.Group(); scene.add(group);
+      const fence = (x:number,z:number,w:number,d:number) => {
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(w,1.7,d),new THREE.MeshStandardMaterial({color:0x849082,roughness:.85}));
+        mesh.position.set(x,terrainHeight(x,z)+.85,z); mesh.castShadow=true; mesh.receiveShadow=true; group.add(mesh);
+        obstacles.push({x,z,hx:w/2,hz:d/2});
+      };
+      // A four-metre guarded entrance remains walkable for the player and escort.
+      for (const wall of refugeWalls(refuge)) fence(wall.x,wall.z,wall.hx*2,wall.hz*2);
+      paintedBoard(`${refuge.name.toUpperCase()} / GESICHERTER UNTERSCHLUPF`,refuge.x+4,refuge.z+refuge.hz+1,'#cde4c1');
+      const light = new THREE.PointLight(0xffd8a1,0,22,2); light.position.set(refuge.x,terrainHeight(refuge.x,refuge.z+refuge.hz)+3.2,refuge.z+refuge.hz-2); scene.add(light); refugeLights.push(light);
+    }
     // Forest perimeter and an old road lead to the rural shelters.
-    for(let i=0;i<70;i++){const x=-168+(i*19%65),z=8+(i*37%143);if(CITY_PLACES.some(p=>Math.hypot(p.x-x,p.z-z)<18)||Math.abs(x+113)<6)continue;place(i%2?'pine':'suburban-tree-large',x,z,1.35+(i%3)*.25,i);}
+    for(let i=0;i<42;i++){const x=-168+(i*19%65),z=8+(i*37%143);if(CITY_PLACES.some(p=>Math.hypot(p.x-x,p.z-z)<18)||Math.abs(x+113)<6)continue;place(i%2?'pine':'suburban-tree-large',x,z,1.35+(i%3)*.25,i);}
     for(const z of [-98,-42,8,58,108]) { paintedBoard('← ALTSTADT / ZENTRUM ↑',91,z,'#c8d7bc'); }
     paintedBoard('BIRKENRAIN ← / WALDCAMP 90 M',-81,31,'#ccd6b7');
     const noteObjects = NOTES.map((note) => {
-      paintedBoard(note.graffiti, note.x, note.z + 1, '#ebc5a1', true);
+      paintedBoard(note.graffiti, note.x, note.z - 3, '#ebc5a1', true);
       const paper = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.04, 0.7), new THREE.MeshStandardMaterial({ color: 0xf2dfae, emissive: 0xd3ac58, emissiveIntensity: 0.35 }));
       paper.position.set(note.x, terrainHeight(note.x, note.z) + 0.6, note.z); paper.rotation.set(0.15, -0.3, 0.1); scene.add(paper);
       place('box', note.x, note.z, 0.8);
@@ -497,11 +532,11 @@ export default function Game() {
       paper.position.set(note.x,terrainHeight(note.x,note.z)+.8,note.z);scene.add(paper);place('box',note.x,note.z,.9);return paper;
     });
     const questProps = [
-      {id:'fuse',x:181,z:-18,color:0xe2bb64}, {id:'generator',x:87,z:-33,color:0x8a9d78},
+      {id:'fuse',x:181,z:-18,color:0xe2bb64}, {id:'generator',x:120,z:90,color:0x8a9d78},
       {id:'shotgun',x:181,z:-74,color:0xc4ad76}, {id:'rifle',x:181,z:-136,color:0x9fb58c},
       {id:'keycard',x:184,z:-136,color:0x82cfda},
     ].map(p=>{const object=new THREE.Mesh(new THREE.BoxGeometry(p.id==='generator'?1.6:.7,p.id==='generator'?1.2:.25,.65),new THREE.MeshStandardMaterial({color:p.color,roughness:.7,metalness:.25}));object.position.set(p.x,terrainHeight(p.x,p.z)+.6,p.z);scene.add(object);return {...p,object};});
-    paintedBoard('STROMNETZ OST / LENZ HÄLT DIE STELLUNG',87,-34,'#e5c183');
+    paintedBoard('STROMNETZ OST / LENZ · SCHULHOF',125,90,'#e5c183');
 
     const objectiveMarker = new THREE.Group(); scene.add(objectiveMarker);
     const markerBeam = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.16, 5, 8, 1, true), new THREE.MeshBasicMaterial({ color: 0xd9ff43, transparent: true, opacity: 0.1, depthWrite: false, side: THREE.DoubleSide })); markerBeam.position.y = 4;
@@ -580,7 +615,7 @@ export default function Game() {
       const angle = Math.random() * Math.PI * 2, distance = 30 + Math.random() * 16;
       const spawnX = THREE.MathUtils.clamp(x ?? camera.position.x + Math.cos(angle) * distance, WORLD.minX + 2, WORLD.maxX - 2);
       const spawnZ = THREE.MathUtils.clamp(z ?? camera.position.z + Math.sin(angle) * distance, WORLD.minZ + 2, WORLD.maxZ - 2);
-      if (collides(spawnX, spawnZ) || (x === undefined && visibleFrom(camera.position, new THREE.Vector3(spawnX, 0, spawnZ)))) return;
+      if (collides(spawnX, spawnZ) || refugeAt(spawnX,spawnZ,2) || (x === undefined && visibleFrom(camera.position, new THREE.Vector3(spawnX, 0, spawnZ)))) return;
       const roll = Math.random();
       const kind: ZombieKind = requestedKind ?? (tougher ? 'tank' : roll < .15 ? 'runner' : roll < .27 ? 'crawler' : roll < .4 ? 'infected' : 'walker');
       const spec = ZOMBIES[kind], scale = spec.scale;
@@ -691,10 +726,10 @@ export default function Game() {
           if(runtime.benQuest>=3 && runtime.benQuest<4){runtime.benQuest=4;runtime.health=100;runtime.infection=0;runtime.inventory.medkit=Math.min(ITEMS.medkit.limit,runtime.inventory.medkit+2);say([npc.name,'Ben lebt? Dann war es nicht umsonst. Ich versorge deine Wunden. Diese Verbände sind für euch. Im Lazarus-Archiv liegt noch der Beweis gegen Falk.']);}
           else if(runtime.evidence.includes('archive'))say([npc.name,'Falk hat den Abbruchbefehl unterschrieben. Mit diesem Original kann er die Wahrheit nicht länger verschweigen. Bring es mit dem Gegenmittel zum Konvoi.']);
           else {runtime.benQuest=Math.max(runtime.benQuest,1);say([npc.name,runtime.evidence.includes('ambulance')?'Waldcamp am Birkenrain. Geh zu Ben. Sag ihm, dass die Kinder mit Lea im Konvoi sind.':runtime.evidence.includes('triage')?'Wagen 12 fuhr zum Bahnhof im Süden. Vielleicht findest du dort sein Funkprotokoll.':'Ich suche Ben Voss. Er lag hier in der Notaufnahme. Auf der Kiste im Behandlungsraum liegt die Patientenliste. Bitte finde heraus, wohin sie ihn gebracht haben.']);}
-        } else {
+        } else if(npc.id==='ben') {
           runtime.benQuest=Math.max(runtime.benQuest,3);say([npc.name,'Ich habe es geschafft. Die Kinder sind mit Lea im Konvoi. Mara muss es erfahren. Sag Dr. Weber, dass ich lebe. Nimm Leas Foto mit.']);
           if(!runtime.evidence.includes('ben'))runtime.evidence.push('ben');
-        }
+        } else say([npc.name,npc.id==='school-resident'?'Wir bleiben hier zusammen. Lenz kümmert sich um den Strom, Anja hält den Eingang frei.':'Der Hof ist gesichert. Komm durch den bewachten Eingang; draußen bist du auf dich gestellt.']);
       }});
       for(const note of DISCOVERIES)candidates.push({x:note.x,z:note.z,label:`LESEN · ${note.title}`,run:()=>{
         if(!runtime.evidence.includes(note.id))runtime.evidence.push(note.id);
@@ -707,7 +742,7 @@ export default function Game() {
           if(runtime.powerQuest===3){say(['LENZ','Das Licht bleibt an. Der Schlüssel passt zur Polizei.']);return;}
           if(runtime.powerQuest<2){notify('Sicherung aus der Werkstatt benötigt');return;}
           if(runtime.inventory.scrap<2){notify('Zwei Ersatzteile fehlen · Werkstatt durchsuchen');return;}
-          runtime.inventory.scrap-=2;runtime.powerQuest=3;emitNoise(p,72,'alarm',12);spawnPack(96,-39,5);notify('Strom wiederhergestellt · Polizeischlüssel erhalten');say(['LENZ','Gut gemacht! Die Beleuchtung läuft. Nimm meinen Polizeischlüssel. Aber Vorsicht — sie haben uns gehört.']);
+          runtime.inventory.scrap-=2;runtime.powerQuest=3;emitNoise(p,72,'alarm',12);spawnPack(141,100,5);notify('Strom wiederhergestellt · Polizeischlüssel erhalten');say(['LENZ','Gut gemacht! Die Beleuchtung läuft. Nimm meinen Polizeischlüssel. Die Wachen halten den Eingang, aber draußen haben sie uns gehört.']);
         }});
         if((p.id==='shotgun'||p.id==='rifle')&&!runtime.arsenal[p.id].owned)candidates.push({x:p.x,z:p.z,label:`${WEAPONS[p.id].name.toUpperCase()} MITNEHMEN`,run:()=>{const kind=p.id as 'shotgun'|'rifle';runtime.arsenal[kind].owned=true;runtime.arsenal[kind].ammo=WEAPONS[kind].magazine;runtime.arsenal[kind].reserve+=kind==='shotgun'?12:30;p.object.visible=false;notify(`${WEAPONS[kind].name} gefunden · [Q] wechseln`);}});
         if(p.id==='keycard'&&!runtime.keycard)candidates.push({x:p.x,z:p.z,label:'LAZARUS-KEYCARD MITNEHMEN',run:()=>{runtime.keycard=true;p.object.visible=false;notify('Lazarus-Keycard gesichert');}});
@@ -785,10 +820,12 @@ export default function Game() {
       spawn: (x:number,z:number,kind:ZombieKind) => { const before=enemies.length;spawnEnemy(x,z,false,kind);if(enemies.length>before)transition(enemies[enemies.length-1].brain,'idle',2); },
       aim: (x:number,y:number,z:number) => {const dx=x-camera.position.x,dz=z-camera.position.z; yaw=Math.atan2(-dx,-dz);pitch=Math.atan2(y-camera.position.y,Math.hypot(dx,dz));camera.rotation.set(pitch,yaw,0);},
       pause:()=>{runtime.active=false;triggerHeld=false;}, resume:()=>{runtime.active=true;},
+      setTime: (hours:number) => { runtime.elapsed=((hours-9+24)%24)*60; snapshotHud(); },
+      environment: () => ({ ...daylightAt(runtime.elapsed), refuge:refugeAt(camera.position.x,camera.position.z)?.id, sun:sunLight.intensity, moon:moonLight.intensity, fog:scene.fog instanceof THREE.FogExp2?scene.fog.density:0, npcs:cityNpcs.map(n=>({id:n.id,x:n.x,z:n.z})), placements:placements.filter(p=>p.anchor.parent).length }),
     }});
 
     const collides = (x: number, z: number) => obstacles.some((o) => Math.abs(x - o.x) < o.hx + 0.45 && Math.abs(z - o.z) < o.hz + 0.45);
-    const moveActor = (position: THREE.Vector3, target: THREE.Vector3, speed: number, dt: number) => {
+    const moveActor = (position: THREE.Vector3, target: THREE.Vector3, speed: number, dt: number, hostile = false) => {
       const delta = new THREE.Vector3(target.x - position.x, 0, target.z - position.z);
       if (delta.length() < 0.15) return false;
       delta.normalize().multiplyScalar(speed * dt);
@@ -808,6 +845,7 @@ export default function Game() {
           }
         }
       }
+      if (hostile && refugeAt(position.x,position.z,1)) { position.x=beforeX; position.z=beforeZ; }
       position.y = terrainHeight(position.x, position.z);
       return Math.hypot(position.x - beforeX, position.z - beforeZ) > 0.0001;
     };
@@ -846,12 +884,59 @@ export default function Game() {
     const resize = () => { const w = canvas.clientWidth, h = canvas.clientHeight; renderer.setSize(w, h, false); composer.setSize(w, h); camera.aspect = w / Math.max(h, 1); camera.updateProjectionMatrix(); };
     addEventListener('keydown', onKeyDown); addEventListener('keyup', onKeyUp); addEventListener('mousemove', onMouseMove); addEventListener('resize', resize); document.addEventListener('pointerlockchange', onPointerLock); canvas.addEventListener('mousedown', onMouseDown); resize();
 
+    // Resolve all real model bounds before removing overlaps in a stable order.
+    const clearLayout = Promise.all(placements.map(p=>p.ready)).then(() => {
+      if (disposed) return;
+      const occupied = [...obstacles];
+      const reserved = [...WORLD_LOOT,...NOTES,...CITY_NPCS,...DISCOVERIES,...questProps,
+        ...OBJECTIVES.map(o=>o.target),{x:START.x,z:START.z}].map(p=>({x:p.x,z:p.z,hx:.75,hz:.75}));
+      for (const {anchor,required} of placements) {
+        if (required) continue;
+        anchor.updateMatrixWorld(true);
+        const bounds = new THREE.Box3().setFromObject(anchor);
+        if (bounds.isEmpty()) continue;
+        const size = bounds.getSize(new THREE.Vector3()), center = bounds.getCenter(new THREE.Vector3());
+        const footprint = {x:center.x,z:center.z,hx:size.x/2,hz:size.z/2};
+        if ([...occupied,...reserved].some(o=>footprintsOverlap(footprint,o))) scene.remove(anchor);
+        else occupied.push(footprint);
+      }
+    });
     Promise.all([
+      clearLayout,
       loadFbx(`${MODEL}characters/characterMedium.fbx`), loadFbx(`${MODEL}characters/animations/run.fbx`),
       loadFbx(`${MODEL}characters/animations/idle.fbx`), loadSkin('zombieA'),
       load('suburban-building-type-a'), load('industrial-building-a'),
     ]).then(() => { if (!disposed) setLoaded(true); }).catch(() => { reportAssetError('Startpaket'); if (!disposed) setLoaded(true); });
 
+    const horizon = new THREE.Color(), zenith = new THREE.Color();
+    const dayHorizon = new THREE.Color(0xbad5e6), duskHorizon = new THREE.Color(0xf0b68b);
+    const dayZenith = new THREE.Color(0x4b9cdb), daySky = new THREE.Color(0xcce6ff), dayGround = new THREE.Color(0x827762), daySun = new THREE.Color(0xfff2da);
+    const sunDirection = new THREE.Vector3();
+    const updateEnvironment = () => {
+      const light = daylightAt(runtime.elapsed);
+      horizon.setHex(0x18253e).lerp(dayHorizon,light.daylight).lerp(duskHorizon,light.twilight*.7);
+      zenith.setHex(0x050b1c).lerp(dayZenith,light.daylight);
+      skyMaterial.uniforms.low.value.copy(horizon); skyMaterial.uniforms.high.value.copy(zenith);
+      scene.background = horizon;
+      if(scene.fog instanceof THREE.FogExp2){scene.fog.color.copy(horizon);scene.fog.density=light.fogDensity;}
+      skyLight.intensity=light.skyIntensity;
+      skyLight.color.setHex(0x8ba8d5).lerp(daySky,light.daylight);
+      skyLight.groundColor.setHex(0x333e49).lerp(dayGround,light.daylight);
+      sunLight.intensity=light.sunIntensity; moonLight.intensity=light.moonIntensity;
+      sunLight.visible=light.sunIntensity>0; moonLight.visible=light.moonIntensity>0;
+      sunLight.color.setHex(0xffb778).lerp(daySun,THREE.MathUtils.smoothstep(light.elevation,0,.5));
+      const direction = sunDirection.set(Math.cos(light.angle),light.elevation,-.35).normalize();
+      sunLight.position.copy(camera.position).addScaledVector(direction,85);
+      moonLight.position.copy(camera.position).addScaledVector(direction,-85);
+      for(const lamp of [sunLight,moonLight]){lamp.target.position.set(camera.position.x,terrainHeight(camera.position.x,camera.position.z),camera.position.z);lamp.target.updateMatrixWorld();}
+      sun.position.copy(camera.position).addScaledVector(direction,160); sun.visible=light.elevation>-.02;
+      moon.position.copy(camera.position).addScaledVector(direction,-160); moon.visible=light.elevation<.02;
+      sky.position.copy(camera.position); stars.position.copy(camera.position); stars.material.opacity=light.night*.7;
+      mist.forEach(sprite=>{sprite.material.opacity=.015+light.night*.035;});
+      refugeLights.forEach(lamp=>{lamp.intensity=light.night*24;});
+      streetLights.forEach(lamp=>{lamp.intensity=runtime.powerQuest===3?light.night*24:0;});
+      renderer.toneMappingExposure=1.05+light.night*.08;
+    };
     const animate = () => {
       frame = requestAnimationFrame(animate); const dt = Math.min(clock.getDelta(), 0.045);
       if (runtime.active) npcMixers.forEach((mixer) => mixer.update(dt));
@@ -872,13 +957,11 @@ export default function Game() {
         const nearestInterior=CITY_PLACES.find(p=>Math.abs(camera.position.x-p.x)<14&&Math.abs(camera.position.z-p.z)<14);
         interiorLight.visible=!!nearestInterior;
         if(nearestInterior){interiorLight.position.set(nearestInterior.x,terrainHeight(nearestInterior.x,nearestInterior.z)+2.9,nearestInterior.z);interiorLight.intensity=(runtime.powerQuest===3?36:12)*(1+Math.sin(runtime.elapsed*12)*.025);}
-        streetLight.intensity=runtime.powerQuest===3&&camera.position.x>80?24:0;streetLight.position.set(camera.position.x+6,terrainHeight(camera.position.x,camera.position.z)+5,camera.position.z-5);
-        moonLight.position.set(camera.position.x-35,45,camera.position.z+18);moonLight.target.position.set(camera.position.x,0,camera.position.z);moonLight.target.updateMatrixWorld();
         runtime.thirst=Math.max(0,runtime.thirst-dt*.07);
         if(runtime.infection>=75)runtime.health=Math.max(1,runtime.health-dt*.3);
         for(const p of CITY_PLACES)if(Math.hypot(p.x-camera.position.x,p.z-camera.position.z)<28&&!runtime.visited.includes(p.id)){
           runtime.visited.push(p.id);notify(`${p.name} · Im Journal entdeckt`);
-          if(p.kind!=='camp')spawnPack(p.x+11,p.z-9,p.kind==='military'?7:p.kind==='hospital'?5:3);
+          if(!REFUGES.some(r=>r.id===p.id))spawnPack(p.x+11,p.z-9,p.kind==='military'?5:2);
           if(p.kind==='lab')spawnEnemy(p.x+10,p.z-2,true);
         }
         runtime.eventTime-=dt;
@@ -960,7 +1043,7 @@ export default function Game() {
           if(distance>95)continue;
           const lureNoises: Stimulus[] = flares.map(f=>({x:f.object.position.x,z:f.object.position.z,radius:23,life:f.life,kind:'flare'}));
           const result = think(enemy.brain,enemy.kind,enemy.group.position,camera.position,enemy.group.rotation.y,obstacles,[...noises,...lureNoises],dt);
-          if(result.strike)hurtPlayer(ZOMBIES[enemy.kind].damage);
+          if(result.strike&&!refugeAt(camera.position.x,camera.position.z))hurtPlayer(ZOMBIES[enemy.kind].damage);
           const beforeX=enemy.group.position.x,beforeZ=enemy.group.position.z;
           enemy.pathTime-=dt;
           if(result.speed>0) {
@@ -973,11 +1056,11 @@ export default function Game() {
             if(waypoint) {
               const targetPoint=new THREE.Vector3(waypoint.x,0,waypoint.z);
               if(enemy.kind==='infected'&&enemy.brain.state==='chase'){targetPoint.x+=Math.sin(runtime.elapsed*4+enemy.phase)*.7;}
-              moveActor(enemy.group.position,targetPoint,result.speed,dt);
+              moveActor(enemy.group.position,targetPoint,result.speed,dt,true);
               // Local separation is applied through the same collision controller.
               const separation=new THREE.Vector3();
               for(const other of enemies){if(other===enemy||!other.alive)continue;const dx=enemy.group.position.x-other.group.position.x,dz=enemy.group.position.z-other.group.position.z,d=Math.hypot(dx,dz);if(d<1.05&&d>.001){separation.x+=dx/d*(1.05-d);separation.z+=dz/d*(1.05-d);}}
-              if(separation.lengthSq()>.001)moveActor(enemy.group.position,enemy.group.position.clone().add(separation),Math.min(1.5,separation.length()*2),dt);
+              if(separation.lengthSq()>.001)moveActor(enemy.group.position,enemy.group.position.clone().add(separation),Math.min(1.5,separation.length()*2),dt,true);
             }
           }
           const traveled=Math.hypot(enemy.group.position.x-beforeX,enemy.group.position.z-beforeZ);
@@ -1017,7 +1100,7 @@ export default function Game() {
         runtime.hudTick -= dt;
         if (runtime.hudTick <= 0) { snapshotHud(); runtime.hudTick = 0.12; }
       }
-      renderer.info.reset(); composer.render();
+      updateEnvironment(); renderer.info.reset(); composer.render();
     };
     animate();
 
@@ -1040,7 +1123,7 @@ export default function Game() {
       <div className="vignette" aria-hidden="true" /><div className="grain" aria-hidden="true" />
 
       {screen === 'playing' && <div className="hud">
-        <div className="field-status"><span>TANNWALD · NACHT 01</span><b>{hud.battery < 20 ? 'LAMPE FAST LEER' : 'TASCHENLAMPE'} {Math.ceil(hud.battery)}%</b><span>[J / M] Karte & Fundstücke · {hud.visited.length}/{CITY_PLACES.length} Orte</span><span>WASSER {Math.ceil(hud.thirst)}% · SCHUTZ {Math.ceil(hud.protection)}</span>{hud.infection>0 && <span className={hud.infection>70?'infected':''}>INFEKTION {Math.ceil(hud.infection)}% · [7] behandeln</span>}</div>
+        <div className="field-status"><span>TANNWALD · TAG {daylightAt(hud.elapsed).day} · {daylightAt(hud.elapsed).clock} · {daylightAt(hud.elapsed).period}</span>{refugeAt(hud.x,hud.z)&&<b>GESICHERTER UNTERSCHLUPF</b>}<b>{hud.battery < 20 ? 'LAMPE FAST LEER' : 'TASCHENLAMPE'} {Math.ceil(hud.battery)}%</b><span>[J / M] Karte & Fundstücke · {hud.visited.length}/{CITY_PLACES.length} Orte</span><span>WASSER {Math.ceil(hud.thirst)}% · SCHUTZ {Math.ceil(hud.protection)}</span>{hud.infection>0 && <span className={hud.infection>70?'infected':''}>INFEKTION {Math.ceil(hud.infection)}% · [7] behandeln</span>}</div>
         <header className="fps-mission">
           <div><small>{objective.place} · AUFTRAG {hud.stage + 1}/6</small><strong>{objective.title}</strong><span>{objective.detail}</span></div>
           <b>{hud.distance}<small>M</small></b>
@@ -1066,13 +1149,14 @@ export default function Game() {
             <rect x="-185" y="-190" width="435" height="360" fill="#101f1a" /><rect x="-185" y="-190" width="435" height="360" fill="url(#map-grid)" />
             {CITY_ROADS.map((r,i)=><rect key={i} x={r.x-r.w/2} y={r.z-r.h/2} width={r.w} height={r.h} fill="#30483b"/>)}
             {CITY_PLACES.map(p=><g key={p.id}><rect x={p.x-7} y={p.z-7} width="14" height="14" fill={hud.visited.includes(p.id)?'#a6bd86':'#3a5345'}/><text x={p.x} y={p.z+15} fontSize="4.5" textAnchor="middle" fill="#b9ceb8">{hud.visited.includes(p.id)?p.name.split(' · ')[0]:'?'}</text></g>)}
+            {REFUGES.map(r=><rect key={r.id} x={r.x-r.hx} y={r.z-r.hz} width={r.hx*2} height={r.hz*2} fill="none" stroke="#91d2ad" strokeWidth=".8" strokeDasharray="2 1"/>)}
             <text x="125" y="-178" fontSize="8" fill="#9aad9b">OSTSTADT</text><text x="-165" y="40" fontSize="7" fill="#799478">BIRKENRAIN</text>
             <path d="M -60 -33 L -44 -7 L -22 -4 L 17 19 L 48 23 L 66 -25" fill="none" stroke="#789078" strokeWidth="1" strokeDasharray="2 2" />
             {REGIONS.map((region, i) => <g key={region.name}><circle cx={region.x} cy={region.z} r="5.5" fill={i === Math.min(hud.stage, 4) ? '#d9ff43' : '#31473b'} /><text x={region.x} y={region.z + 1.5} textAnchor="middle" fontSize="4" fill={i === Math.min(hud.stage, 4) ? '#142019' : '#eef1dd'}>{i + 1}</text><text x={region.x} y={region.z + 11} textAnchor="middle" fill="#b5c6ba" fontSize="3.3">{region.name.toUpperCase()}</text></g>)}
             <circle cx={hud.x} cy={hud.z} r="2.5" fill="#fff" stroke="#0d1813" strokeWidth="0.8" />
             <text x="-87" y="-54" fontSize="4" fill="#9cae9f">N ↑</text>
-          </svg><p>● Weiß: dein Standort · Gelb: aktuelles Ziel · ? Noch nicht erkundet</p>
-          <section className="quest-log"><h3>Offene Spuren</h3><article><b>Das Licht der Oststadt</b><p>{hud.powerQuest===0?'Lenz wartet am Übergang zur Oststadt, östlich des Funkturms.':hud.powerQuest===1?'Durchsuche die Werkstatt an der Ringstraße nach einer Sicherung.':hud.powerQuest===2?'Bring die Sicherung und zwei Ersatzteile zum Generator bei Lenz.':'✓ Strom wiederhergestellt. Der Polizeischlüssel öffnet die Waffenkammer.'}</p></article><article><b>Ein Name auf der Liste</b><p>{hud.benQuest===0?'In der Notaufnahme der Oststadt sucht Dr. Weber einen Vermissten.':hud.benQuest>=4?'✓ Ben lebt. Dr. Weber hat deine Wunden versorgt.':hud.benQuest===3?'Melde Dr. Weber im Krankenhaus, dass Ben im Waldcamp lebt.':hud.evidence.includes('ambulance')?'Folge dem Waldweg zum Camp am Birkenrain, südwestlich der Stadt.':hud.evidence.includes('triage')?'Suche das Funkprotokoll im Bahnhof im Süden.':'Suche die Patientenliste im Krankenhaus.'}</p></article><article><b>Was Falk verschwieg</b><p>{hud.evidence.includes('archive')?'✓ Original des Abbruchbefehls gesichert.':hud.keycard?'Keycard gefunden. Das Lazarus-Archiv braucht außerdem Strom.':'Am Kontrollpunkt Nord liegt der Zugang zum Lazarus-Archiv.'}</p></article></section>
+          </svg><p>● Weiß: dein Standort · Gelb: aktuelles Ziel · Grün umrandet: gesicherter Unterschlupf · ? Noch nicht erkundet</p>
+          <section className="quest-log"><h3>Offene Spuren</h3><article><b>Das Licht der Oststadt</b><p>{hud.powerQuest===0?'Lenz wartet im gesicherten Schulhof der Oststadt.':hud.powerQuest===1?'Durchsuche die Werkstatt an der Ringstraße nach einer Sicherung.':hud.powerQuest===2?'Bring die Sicherung und zwei Ersatzteile zum Generator bei Lenz.':'✓ Strom wiederhergestellt. Der Polizeischlüssel öffnet die Waffenkammer.'}</p></article><article><b>Ein Name auf der Liste</b><p>{hud.benQuest===0?'In der Notaufnahme der Oststadt sucht Dr. Weber einen Vermissten.':hud.benQuest>=4?'✓ Ben lebt. Dr. Weber hat deine Wunden versorgt.':hud.benQuest===3?'Melde Dr. Weber im Krankenhaus, dass Ben im Waldcamp lebt.':hud.evidence.includes('ambulance')?'Folge dem Waldweg zum Camp am Birkenrain, südwestlich der Stadt.':hud.evidence.includes('triage')?'Suche das Funkprotokoll im Bahnhof im Süden.':'Suche die Patientenliste im Krankenhaus.'}</p></article><article><b>Was Falk verschwieg</b><p>{hud.evidence.includes('archive')?'✓ Original des Abbruchbefehls gesichert.':hud.keycard?'Keycard gefunden. Das Lazarus-Archiv braucht außerdem Strom.':'Am Kontrollpunkt Nord liegt der Zugang zum Lazarus-Archiv.'}</p></article></section>
           <div className="region-list">{CITY_PLACES.filter(p=>hud.visited.includes(p.id)).map(p=><div key={p.id}><b>{p.name}</b><p>{p.story}</p></div>)}</div>
           <div className="region-list">{REGIONS.map((region, i) => <div key={region.name}><b>0{i + 1} · {region.name}</b><span>{region.loot}</span><p>{region.detail}</p></div>)}</div></div>
           <aside className="inventory-panel"><h3>Waffen & Ausrüstung</h3><p className="ammo-stock">Reserve: 9 mm {hud.arsenal.pistol.reserve} · 12/70 {hud.arsenal.shotgun.reserve} · 5.56 mm {hud.arsenal.rifle.reserve}</p>{(Object.keys(WEAPONS) as WeaponKind[]).filter(k=>hud.arsenal[k].owned).map(k=><div key={k}><section><b>{hud.weapon===k?'● ':''}{WEAPONS[k].name}</b><p>{k==='axe'?'Nahkampf · 20 Ausdauer · 2,6 m':WEAPONS[k].ammo + ' · ' + hud.arsenal[k].ammo + ' / ' + hud.arsenal[k].reserve + ' Patronen'}</p></section></div>)}<p className="journal-tip">[Q] Waffe wechseln · [R] Nachladen · Rechte Maus: zielen. Nachladen wird beim Waffenwechsel abgebrochen.</p>{(Object.entries(ITEMS) as [ItemKind, typeof ITEMS[ItemKind]][]).map(([kind, item]) => <div key={kind}><kbd>{item.key}</kbd><section><b>{item.name} <em>×{hud.inventory[kind]}</em></b><p>{item.purpose}</p></section></div>)}<p className="journal-tip">Mit E sammeln und Briefe lesen. Gehen ist leise; Sprinten und Schüsse locken Infizierte an. Fackeln geben dir Zeit zum Durchbrechen.</p><p className="journal-tip">{hud.repaired ? '✓ Sender verstärkt.' : 'Am Funkturm: [5] mit drei Ersatzteilen.'}</p></aside>
@@ -1084,7 +1168,7 @@ export default function Game() {
       {dialogue && screen === 'playing' && <section className="radio-message fps-dialogue"><div className="speaker-mark">{dialogue.speaker.charAt(0)}</div><div><small>{dialogue.speaker}</small><p>{dialogue.text}</p></div></section>}
 
       {screen === 'title' && <section className="title-card fps-title">
-        <p className="eyebrow">OPEN WORLD SURVIVAL · TANNWALD · 03:17 UHR</p>
+        <p className="eyebrow">OPEN WORLD SURVIVAL · TANNWALD · 09:00 UHR</p>
         <h1>NACHT<span>WACHE</span></h1>
         <p className="tagline">Eine Stadt voller Spuren. Verlassene Straßen, letzte Überlebende — und etwas, das dich gehört hat.</p>
         <button type="button" onClick={start} disabled={!loaded}>{loaded ? 'MISSION STARTEN' : 'TANNWALD WIRD GELADEN…'} <span>→</span></button>
@@ -1096,7 +1180,7 @@ export default function Game() {
       </section>}
       {screen === 'paused' && <section className="overlay-card compact"><p className="eyebrow">MISSION PAUSIERT</p><h2>Bleib leise.</h2><p>1 Verband · 2 Ration · 3 Batterie · 4 Fackel · 5 Sender reparieren<br />6 Wasser · 7 Antibiotika · 8 Weste · Q Waffenwechsel<br />E sammeln / lesen · J Karte & Fundstücke · F Taschenlampe</p><button type="button" onClick={resume}>WEITERSPIELEN <span>→</span></button><button type="button" onClick={() => apiRef.current?.journal()}>FELDJOURNAL <span>→</span></button></section>}
       {screen === 'dead' && <section className="overlay-card"><p className="eyebrow danger">ELIAS · SIGNAL VERLOREN</p><h2>Tannwald behält dich.</h2><p>{hud.kills} Infizierte sind gefallen. Mara und Noah warten noch immer am Funkturm.</p><button type="button" onClick={start}>MISSION NEU STARTEN <span>→</span></button></section>}
-      {screen === 'won' && <section className="overlay-card win"><p className="eyebrow">05:42 UHR · KONVOI EINGETROFFEN</p><h2>Der Morgen findet euch.</h2><p>Das Gegenmittel ist gesichert. Mara und Noah verlassen Tannwald. {(hud.discovered.includes(4)||hud.evidence.includes('ben')) ? 'Du zeigst Mara den Funkspruch: Lea lebt. Zum ersten Mal in dieser Nacht lächelt sie.' : 'Mara sucht in jedem Fenster des Konvois nach einer roten Jacke.'} {hud.evidence.includes('archive')?'Auch Falks unterschriebener Abbruchbefehl verlässt mit euch die Stadt.':''}</p><div className="result"><span>{hud.kills}<small>INFIZIERTE</small></span><span>{hud.health}<small>GESUNDHEIT</small></span><span>{hud.discovered.length}/5<small>FUNDSTÜCKE</small></span></div><button type="button" onClick={start}>NOCH EINMAL <span>↻</span></button></section>}
+      {screen === 'won' && <section className="overlay-card win"><p className="eyebrow">{daylightAt(hud.elapsed).clock} UHR · KONVOI EINGETROFFEN</p><h2>Ihr habt es geschafft.</h2><p>Das Gegenmittel ist gesichert. Mara und Noah verlassen Tannwald. {(hud.discovered.includes(4)||hud.evidence.includes('ben')) ? 'Du zeigst Mara den Funkspruch: Lea lebt. Zum ersten Mal seit der Evakuierung lächelt sie.' : 'Mara sucht in jedem Fenster des Konvois nach einer roten Jacke.'} {hud.evidence.includes('archive')?'Auch Falks unterschriebener Abbruchbefehl verlässt mit euch die Stadt.':''}</p><div className="result"><span>{hud.kills}<small>INFIZIERTE</small></span><span>{hud.health}<small>GESUNDHEIT</small></span><span>{hud.discovered.length}/5<small>FUNDSTÜCKE</small></span></div><button type="button" onClick={start}>NOCH EINMAL <span>↻</span></button></section>}
       <footer className="credit">3D-ASSETS & ANIMATIONEN: KENNEY · CC0 · DESKTOP-SPIEL</footer>
     </main>
   );

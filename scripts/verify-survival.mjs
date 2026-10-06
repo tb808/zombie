@@ -3,6 +3,7 @@ import { Scene, Mesh, BoxGeometry, MeshBasicMaterial } from 'three';
 import { makeBrain, think, transition, findPath, freshArsenal, WEAPONS, ZOMBIES } from '../app/survival.ts';
 import { segmentBlocked } from '../app/world.ts';
 import { CITY_LOOT, CITY_PLACES, CITY_NPCS, DISCOVERIES, buildCity } from '../app/city.ts';
+import { refugeAt } from '../app/environment.ts';
 
 const origin={x:0,z:0}, player={x:0,z:6}, wall=[{x:0,z:3,hx:3,hz:.3}];
 const brain=makeBrain(origin);
@@ -27,7 +28,8 @@ for(const id of ['police','lab']){const p=CITY_PLACES.find(p=>p.id===id);assert(
 for(const p of [...CITY_LOOT,...CITY_NPCS,...DISCOVERIES]){
   assert(!obstacles.some(o=>Math.abs(p.x-o.x)<o.hx+.4&&Math.abs(p.z-o.z)<o.hz+.4),`Target ${JSON.stringify(p)} inside collision`);
   const closest=[...CITY_PLACES].sort((a,b)=>Math.hypot(p.x-a.x,p.z-a.z)-Math.hypot(p.x-b.x,p.z-b.z))[0];
-  assert(findPath({x:closest.x,z:closest.z+12},p,obstacles).length,`Target at ${p.x},${p.z} reachable`);
+  const refuge=refugeAt(p.x,p.z);
+  assert(findPath(refuge?{x:refuge.x,z:refuge.z+refuge.hz+3}:{x:closest.x,z:closest.z+12},p,obstacles).length,`Target at ${p.x},${p.z} reachable`);
 }
 city.reset();assert(city.doors.every(d=>obstacles.includes(d.obstacle)&&d.mesh.visible),'Reset restores locked doors');
 let meshes=0;scene.traverse(o=>{if(o.isMesh)meshes++});assert(meshes<400,`City meshes batched: ${meshes}`);

@@ -44,9 +44,13 @@ export const DISCOVERIES = [
   { id:'shelter',x:120,z:77,title:'Namen an der Tafel',text:'Lea — Konvoi 2. Ben — verletzt, Bahnhof. Mara — hält die Station. Unter den Namen steht: „Nicht streichen. Wiederfinden.“' },
 ] as const;
 export const CITY_NPCS = [
-  { id:'lenz',name:'LENZ · MECHANIKER',x:87,z:-29,skin:'survivorMaleB',color:0xe4ae64 },
+  { id:'lenz',name:'LENZ · MECHANIKER',x:120,z:85,skin:'survivorMaleB',color:0xe4ae64 },
   { id:'weber',name:'DR. WEBER',x:114,z:-62,skin:'survivorFemaleA',color:0x8ecbda },
   { id:'ben',name:'BEN · EVAKUIERTER',x:-120,z:124,skin:'survivorMaleB',color:0xbcd99a },
+  { id:'ranger-guard',name:'JONAS · RANGER',x:-55,z:-41,skin:'survivorMaleB',color:0xc8d5b1 },
+  { id:'school-guard',name:'ANJA · WACHE',x:117,z:89,skin:'survivorFemaleA',color:0xc8d5b1 },
+  { id:'school-resident',name:'PAUL · EVAKUIERTER',x:123,z:89,skin:'survivorMaleB',color:0xc8d5b1 },
+  { id:'camp-guard',name:'NORA · RANGERIN',x:-117,z:125,skin:'survivorFemaleA',color:0xc8d5b1 },
 ] as const;
 export type CityWorld = ReturnType<typeof buildCity>;
 export function buildCity(scene: THREE.Scene, height: (x:number,z:number)=>number, obstacles: Obstacle[], board:(text:string,x:number,z:number,color?:string,graffiti?:boolean)=>THREE.Mesh) {

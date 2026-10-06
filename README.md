@@ -47,6 +47,10 @@ Mara schickt Elias vom Rangerlager über Markt und Friedhof zur alten Klinik. No
 
 Die Oststadt ist jederzeit über die Hauptstraße erreichbar. Ihr Straßennetz verbindet zwölf neue betretbare Orte einschließlich Notaufnahme, Polizei, Markthalle, Werkstatt, Feuerwehr, Wohnblock, Schule, Bahnhof, Kontrollpunkt und Lazarus-Archiv. Hof und Waldcamp liegen westlich außerhalb der Stadt. Öffentliche Gebäude haben eingerichtete Innenräume; geschlossene Wohn- und Büroblöcke bilden Skyline und Straßenkanten.
 
+Ein Durchlauf startet um 09:00 Uhr. Ein vollständiger Tag dauert 24 Spielminuten; Sonne, Mond, Himmelsfarben, Schatten und leichter Dunst wechseln fließend zwischen Tag, Dämmerung und Nacht. Pausen und Journal halten auch die Weltzeit an. Die Uhrzeit steht im HUD. Nachts leuchten die Unterschlüpfe, und nach Lenz’ Reparatur auch die festen Straßenlaternen.
+
+Rangerstation, Schutzhof der Notaufnahme, Schule und Waldcamp sind eingefriedete Unterschlüpfe mit bewachten Zugängen. Infizierte erscheinen außerhalb und können den Schutzbereich nicht betreten. Kleine Gruppen von Überlebenden bleiben dort; Lenz und sein Generator stehen im Schulhof. Die Karte markiert die Schutzbereiche grün. Dekorationen werden anhand ihrer geladenen Modellabmessungen ausgedünnt, sodass Gebäude, Wege zu Missionszielen, Vorräte und NPCs frei bleiben.
+
 - **Das Licht der Oststadt:** Lenz benötigt die Sicherung aus seiner Werkstatt und zwei Ersatzteile. Der reparierte Generator versorgt die Beleuchtung, lockt Infizierte an und bringt den Polizeischlüssel. In der verschlossenen Waffenkammer liegt eine Schrotflinte.
 - **Ein Name auf der Liste:** Dr. Weber sucht Ben. Die Patientenliste führt zum Bahnhof, ein Funkprotokoll weiter ins Waldcamp. Wer seine Rückkehr meldet, erhält Behandlung und Verbände. Mara reagiert auf die Nachricht von Lea.
 - **Was Falk verschwieg:** Keycard vom Kontrollpunkt und reparierter Strom öffnen das Archiv. Der Abbruchbefehl bleibt im Journal und verändert den Abschlusstext.
@@ -68,12 +72,14 @@ Pistole (9 mm), Schrotflinte (12/70) und Karabiner (5.56 mm) haben eigene Magazi
 - `app/zombieAnimation.ts`: vorhandene Skelettclips plus Gelenkposen. Die Laufphase folgt der gemessenen Bewegung.
 - `app/city.ts`: Orte, Einrichtung, Loot, Hinweise, Türen und zusammengefasste Stadtgeometrie.
 - `app/world.ts`: ursprüngliche Orte, Briefe, Gegenstände und gemeinsame Deckungsprüfung.
+- `app/environment.ts`: Weltzeit, Tageslicht, Unterschlüpfe und Abstandsprüfung.
 
 ```sh
 npm run lint
 npx tsc --noEmit
 npm run check:assets
 npm run check:gameplay
+npm run check:environment
 npm run build
 ```
 
@@ -86,6 +92,7 @@ npx --yes --package @playwright/cli playwright-cli -s=zombie open http://localho
 npx --yes --package @playwright/cli playwright-cli -s=zombie run-code --filename scripts/browser-smoke.js
 npx --yes --package @playwright/cli playwright-cli -s=zombie run-code --filename scripts/browser-story.js
 npx --yes --package @playwright/cli playwright-cli -s=zombie run-code --filename scripts/browser-defense.js
+npx --yes --package @playwright/cli playwright-cli -s=zombie run-code --filename scripts/browser-environment.js
 ```
 
 Eine ausschließlich im Entwicklungsbuild verfügbare QA-Schnittstelle erlaubt Positionierung und Zustandsabfragen. Kampf, Gegenstände, Aufgaben, Navigation und Timer laufen durch die echten Spielsysteme. Der Verteidigungstest setzt den Storytest fort. Bildschirmaufnahmen liegen in `output/playwright/`.

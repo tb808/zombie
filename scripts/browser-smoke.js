@@ -21,8 +21,8 @@ async (page) => {
   check(state.kills===2&&state.stamina<=81,'Melee hits low enemies while looking down and consumes stamina');
   await page.evaluate(()=>{
     const g=window.__nachtwache;
-    g.teleport(87,-28);g.interact();g.teleport(178,-23);g.interact();g.teleport(181,-18);g.interact();
-    g.teleport(87,-32);g.interact();g.teleport(181,-70);g.interact();g.teleport(181,-74);g.interact();
+    g.teleport(120,85);g.interact();g.teleport(178,-23);g.interact();g.teleport(181,-18);g.interact();
+    g.teleport(120,90);g.interact();g.teleport(181,-70);g.interact();g.teleport(181,-74);g.interact();
     g.teleport(114,-61);g.interact();g.teleport(120,-71);g.interact();g.teleport(181,87);g.interact();
     g.teleport(-120,124);g.interact();g.teleport(114,-61);g.interact();
     g.teleport(184,-136);g.interact();g.teleport(181,-136);g.interact();g.teleport(120,-132);g.interact();g.teleport(120,-136);g.interact();

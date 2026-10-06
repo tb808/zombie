@@ -5,6 +5,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { LOOT, NOTES, segmentBlocked, newInventory, ITEMS } from '../app/world.ts';
 import { CITY_LOOT } from '../app/city.ts';
+import { REFUGES, refugeWalls, footprintsOverlap } from '../app/environment.ts';
 
 const root = new URL('../public/models/kenney/', import.meta.url);
 const buffer = path => { const b = readFileSync(new URL(path, root)); return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength); };
@@ -54,6 +55,12 @@ const obstacles = buildings.map(([, name, x, z, scale, rotation]) => {
   return { name, x: center.x, z: center.z, hx: extent.x / 2, hz: extent.z / 2 };
 });
 assert.equal(obstacles.length, 15, 'All 15 world buildings audited');
+for(let i=0;i<obstacles.length;i++)for(let j=i+1;j<obstacles.length;j++)
+  assert(!footprintsOverlap(obstacles[i],obstacles[j],0),`${obstacles[i].name} overlaps ${obstacles[j].name}`);
+const refugeObstacles=REFUGES.flatMap(refugeWalls);
+for(const building of obstacles)for(const wall of refugeObstacles)
+  assert(!footprintsOverlap(building,wall,0),`${building.name} overlaps refuge perimeter`);
+obstacles.push(...refugeObstacles);
 const targets = [...LOOT.map(p => ({ ...p, label: p.kind })), ...NOTES.map(p => ({ ...p, label: p.title })), ...[[-61,-35],[-53,-36],[-19,-4],[17,15],[48,23],[66,-25]].map(([x,z])=>({x,z,label:'mission'}))];
 const collisions = targets.flatMap(point => obstacles.filter(o => Math.abs(point.x - o.x) < o.hx + 0.45 && Math.abs(point.z - o.z) < o.hz + 0.45).map(o => `${point.label} (${point.x},${point.z}) in ${o.name} (${o.x.toFixed(1)},${o.z.toFixed(1)}), extent ${o.hx.toFixed(1)}×${o.hz.toFixed(1)}`));
 assert.deepEqual(collisions, [], 'All loot, notes, spawn and mission targets must be outside building collision boxes');
