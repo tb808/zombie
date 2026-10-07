@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { surfaceMaterial } from './surfaces.ts';
-import { WORLD, type Obstacle } from './survival.ts';
+import type { Obstacle } from './survival.ts';
+import { LEGACY_BOUNDS as WORLD } from './regionPlan.ts';
 import { detailedAsset } from './naturalAssets.ts';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 

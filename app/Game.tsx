@@ -7,7 +7,6 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
@@ -24,10 +23,16 @@ import { assetPath } from './assetPath';
 import { daylightAt, REFUGES, refugeAt, refugeWalls, footprintsOverlap } from './environment';
 import { CAMPAIGN, missionIndex } from './campaign';
 import { SAFEHOUSES, HOUSE_LOOT, newHouses, houseReady, houseProtected, houseContains, canSleep, nextHour } from './safehouses';
-import { detailMaterial, surfaceMaterial } from './surfaces';
-import { detailedAsset, foliageTime } from './naturalAssets';
+import { detailMaterial, surfaceMaterial, releaseSurfaceTextures } from './surfaces';
+import { detailedAsset, foliageTime, createTreeDetailController } from './naturalAssets';
 import { buildWorldDetail } from './worldDetail';
-const WORLD_LOOT: {kind:LootKind;x:number;z:number;count:number;y?:number}[] = [...LOOT,...CITY_LOOT,...HOUSE_LOOT];
+import { compileScene, makeLocalLightPool, renderPixelRatio, ResolutionBudget } from './renderBudget';
+import { buildRegionWorld, regionalCollision } from './regionWorld';
+import { REGION_LOOT, REGION_POIS, REGION_SIGNS, ROAD_LINES, BRIDGES, STRUCTURES, WORLD_ZONES, inLegacy, riskAt, zoneAt } from './regionPlan';
+import { terrainHeight } from './regionTerrain';
+import { buildSettlementDetail } from './settlementDetail';
+const WORLD_LOOT: {kind:LootKind;x:number;z:number;count:number;y?:number}[] = [...LOOT,...CITY_LOOT,...HOUSE_LOOT,...REGION_LOOT];
+const EXPLORABLE_IDS = [...CITY_PLACES,...REGION_POIS,...WORLD_ZONES].map(p=>p.id);
 
 type Screen = 'title' | 'playing' | 'paused' | 'dead' | 'won' | 'journal' | 'shelter';
 type Hud = {
@@ -51,30 +56,6 @@ const modelUrl = (name: string) => {
   if (name.startsWith('industrial-')) return `${MODEL}industrial/${name.replace('industrial-', '')}.glb`;
   if (SURVIVAL_MODELS.has(name)) return `${MODEL}survival/${name}.glb`;
   return `${MODEL}graveyard/${name}.glb`;
-};
-
-const rawTerrainHeight = (x: number, z: number) => {
-  const rolling = Math.sin(x * 0.055) * Math.cos(z * 0.07) * 0.7 + Math.sin((x + z) * 0.035) * 0.38;
-  const hill = (cx: number, cz: number, sx: number, sz: number, height: number) => height * Math.exp(-(((x - cx) ** 2) / sx + ((z - cz) ** 2) / sz));
-  return rolling + hill(-48, 42, 480, 150, 5.2) + hill(8, 48, 850, 130, 3.8) + hill(72, 48, 350, 180, 5.6) + hill(-68, -52, 400, 120, 3.8) + hill(22, -50, 650, 135, 4.6) + hill(86, -47, 300, 120, 4.2);
-};
-
-const TERRAIN_PLATEAUS = [
-  [-60, -31, 17], [-22, -4, 25], [18, 18, 18], [55, 22, 23], [66, -25, 17],
-] as const;
-
-const terrainHeight = (x: number, z: number) => {
-  let height = rawTerrainHeight(x, z);
-  for (const [cx, cz, radius] of TERRAIN_PLATEAUS) {
-    const distance = Math.hypot(x - cx, z - cz);
-    const t = Math.max(0, Math.min(1, 1 - distance / radius));
-    const smooth = t * t * (3 - 2 * t);
-    height = THREE.MathUtils.lerp(height, rawTerrainHeight(cx, cz), smooth * 0.92);
-  }
-  const cityBlend = THREE.MathUtils.smoothstep(x,78,98);
-  height = THREE.MathUtils.lerp(height, .15, cityBlend);
-  for (const place of CITY_PLACES.filter(p=>p.x<0)) { const t=1-THREE.MathUtils.smoothstep(Math.max(Math.abs(x-place.x),Math.abs(z-place.z)),8,18);height=THREE.MathUtils.lerp(height,rawTerrainHeight(place.x,place.z),t); }
-  return height;
 };
 
 const horizontalDistance = (a: THREE.Vector3, b: THREE.Vector3) => Math.hypot(a.x - b.x, a.z - b.z);
@@ -141,44 +122,38 @@ export default function Game() {
     let generation = 0;
     const reportAssetError = (name: string) => { if (!disposed) setAssetErrors(old => old.includes(name) ? old : [...old, name]); console.warn('Asset konnte nicht geladen werden:', name); };
 
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
     renderer.info.autoReset = false;
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 1.65));
+    const resolutionBudget = new ResolutionBudget();
+    renderer.setPixelRatio(renderPixelRatio(canvas.clientWidth, canvas.clientHeight, devicePixelRatio));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.autoUpdate = false;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.05;
 
     const scene = new THREE.Scene();
     const reflectionGenerator = new THREE.PMREMGenerator(renderer), reflectionRoom = new RoomEnvironment();
-    const reflections = reflectionGenerator.fromScene(reflectionRoom,.04);
+    let reflections = reflectionGenerator.fromScene(reflectionRoom,.04);
     scene.environment=reflections.texture;scene.environmentIntensity=.35;
     reflectionRoom.dispose();reflectionGenerator.dispose();
     scene.background = new THREE.Color(0x91bbda);
     scene.fog = new THREE.FogExp2(0x91bbda, 0.0025);
-    const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 220);
+    const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 650);
     camera.rotation.order = 'YXZ';
     camera.position.set(START.x, terrainHeight(START.x, START.z) + 1.72, START.z);
     scene.add(camera);
 
     const skyLight = new THREE.HemisphereLight(0xcce6ff, 0x827762, 1.9);
     scene.add(skyLight);
-    const moonLight = new THREE.DirectionalLight(0xb4cafa, .28);
-    moonLight.position.set(-35, 50, 18);
-    moonLight.castShadow = true;
-    moonLight.shadow.mapSize.set(2048, 2048);
-    moonLight.shadow.camera.left = -42; moonLight.shadow.camera.right = 42;
-    moonLight.shadow.camera.top = 42; moonLight.shadow.camera.bottom = -42;
-    moonLight.shadow.normalBias = .025;
-    scene.add(moonLight);
     const sunLight = new THREE.DirectionalLight(0xfff2da, 3.2);
     sunLight.castShadow = true;
-    sunLight.shadow.mapSize.set(2048, 2048);
+    sunLight.shadow.mapSize.set(1024, 1024);
     Object.assign(sunLight.shadow.camera, { left: -44, right: 44, top: 44, bottom: -44, near: 1, far: 180 });
     sunLight.shadow.bias = -.00025;
     sunLight.shadow.normalBias = .025;
-    scene.add(sunLight, sunLight.target, moonLight.target);
+    scene.add(sunLight, sunLight.target);
     const sun = new THREE.Mesh(new THREE.SphereGeometry(2, 16, 12), new THREE.MeshBasicMaterial({ color: 0xfff2cf, toneMapped: false }));
     scene.add(sun);
     const moon = new THREE.Mesh(new THREE.SphereGeometry(4, 12, 8), new THREE.MeshBasicMaterial({ color: 0xd8e4dc }));
@@ -202,7 +177,7 @@ export default function Game() {
         }`,
     });
     const sky = new THREE.Mesh(
-      new THREE.SphereGeometry(210, 28, 16),
+      new THREE.SphereGeometry(640, 28, 16),
       skyMaterial,
     );
     scene.add(sky);
@@ -215,24 +190,8 @@ export default function Game() {
     const stars = new THREE.Points(starGeometry, new THREE.PointsMaterial({ color: 0xc7d9ed, size: 0.16, transparent: true, opacity: 0, sizeAttenuation: true, depthWrite: false }));
     scene.add(stars);
 
-    const terrainGeometry = new THREE.PlaneGeometry(460, 390, 230, 195);
-    const terrainPosition = terrainGeometry.getAttribute('position') as THREE.BufferAttribute;
-    const terrainColors: number[] = [];
-    const lowColor = new THREE.Color(0x929c80), highColor = new THREE.Color(0xaaa28a), cityGround = new THREE.Color(0xa8a59b), tempColor = new THREE.Color();
-    for (let i = 0; i < terrainPosition.count; i += 1) {
-      const x = terrainPosition.getX(i) + 30, z = -terrainPosition.getY(i) - 12, height = terrainHeight(x, z); terrainPosition.setX(i,x); terrainPosition.setY(i,-z);
-      terrainPosition.setZ(i, height);
-      tempColor.copy(lowColor).lerp(highColor, THREE.MathUtils.clamp((height + 1) / 7, 0, 1));
-      tempColor.lerp(cityGround,THREE.MathUtils.smoothstep(x,78,100));
-      const variation = Math.sin(x * 1.7 + z * 2.3) * 0.035; tempColor.offsetHSL(0, 0, variation);
-      terrainColors.push(tempColor.r, tempColor.g, tempColor.b);
-    }
-    terrainGeometry.setAttribute('color', new THREE.Float32BufferAttribute(terrainColors, 3));
-    terrainGeometry.computeVertexNormals();
-    const ground = new THREE.Mesh(terrainGeometry, surfaceMaterial('soil',0xffffff,{vertexColors:true,roughness:.96}));
-    ground.rotation.x = -Math.PI / 2;
-    ground.receiveShadow = true;
-    scene.add(ground);
+    const regionWorld = buildRegionWorld(scene);
+    const regionCollision = regionalCollision();
 
     const mistCanvas = document.createElement('canvas'); mistCanvas.width = 128; mistCanvas.height = 128;
     const mistContext = mistCanvas.getContext('2d');
@@ -252,9 +211,8 @@ export default function Game() {
 
     const composer = new EffectComposer(renderer);
     composer.addPass(new RenderPass(scene, camera));
-    composer.addPass(new UnrealBloomPass(new THREE.Vector2(1, 1), 0.09, 0.35, 1.2));
-    const antialiasPass=new ShaderPass(FXAAShader);composer.addPass(antialiasPass);
     composer.addPass(new OutputPass());
+    const antialiasPass=new ShaderPass(FXAAShader);composer.addPass(antialiasPass);
 
     const loader = new GLTFLoader();
     const fbxLoader = new FBXLoader();
@@ -270,6 +228,8 @@ export default function Game() {
       return fbxCache.get(path)!;
     };
     const textureCache = new Map<string, Promise<THREE.Texture>>();
+    const characterGeometry = new WeakMap<THREE.BufferGeometry, THREE.BufferGeometry>();
+    const characterSize = new WeakMap<THREE.Object3D,{scale:number;offset:number}>();
     const loadSkin = (skin: string) => {
       if (!textureCache.has(skin)) textureCache.set(skin, new Promise((resolve, reject) => textureLoader.load(`${MODEL}characters/skins/${skin}.png`, (texture) => { texture.colorSpace = THREE.SRGBColorSpace; texture.magFilter = THREE.NearestFilter;texture.anisotropy=4; resolve(texture); }, undefined, reject)));
       return textureCache.get(skin)!;
@@ -285,14 +245,21 @@ export default function Game() {
       model.traverse((child) => {
         if (child instanceof THREE.SkinnedMesh || child instanceof THREE.Mesh) {
           child.castShadow = true; child.receiveShadow = true;
-          const geometry=child.geometry.clone();geometry.deleteAttribute('normal');child.geometry=mergeVertices(geometry);geometry.dispose();child.geometry.computeVertexNormals();
+          const original=child.geometry;
+          if(!characterGeometry.has(original)){const geometry=original.clone();geometry.deleteAttribute('normal');const smooth=mergeVertices(geometry);geometry.dispose();smooth.computeVertexNormals();characterGeometry.set(original,smooth);}
+          child.geometry=characterGeometry.get(original)!;
           child.material = detailMaterial(new THREE.MeshStandardMaterial({ map: texture, roughness: 0.82, metalness: 0.02, alphaTest: 0.02 }),'fabric',.28);
         }
       });
-      model.updateMatrixWorld(true);
-      const sourceBounds = new THREE.Box3().setFromObject(model), sourceSize = sourceBounds.getSize(new THREE.Vector3());
-      const factor = 1.82 / Math.max(sourceSize.y, 0.001); model.scale.setScalar(factor); model.updateMatrixWorld(true);
-      const scaledBounds = new THREE.Box3().setFromObject(model); model.position.y -= scaledBounds.min.y;
+      const normalization=characterSize.get(base);
+      if(normalization){model.scale.setScalar(normalization.scale);model.position.y=normalization.offset;}
+      else{
+        model.updateMatrixWorld(true);
+        const sourceBounds = new THREE.Box3().setFromObject(model), sourceSize = sourceBounds.getSize(new THREE.Vector3());
+        const factor = 1.82 / Math.max(sourceSize.y, 0.001); model.scale.setScalar(factor); model.updateMatrixWorld(true);
+        const scaledBounds = new THREE.Box3().setFromObject(model); model.position.y -= scaledBounds.min.y;
+        characterSize.set(base,{scale:factor,offset:model.position.y});
+      }
       const mixer = new THREE.AnimationMixer(model);
       const action = (source: THREE.Group, name: 'Idle' | 'Run') => {
         const clip = source.animations.find(clip => clip.name.endsWith(`|${name}`))?.clone();
@@ -318,6 +285,8 @@ export default function Game() {
     };
     const placements: { anchor: THREE.Group; required: boolean; ready: Promise<void> }[] = [];
     let worldDetail:ReturnType<typeof buildWorldDetail>|undefined;
+    let settlementDetail:Awaited<ReturnType<typeof buildSettlementDetail>>;
+    let treeDetail:ReturnType<typeof createTreeDetailController>|undefined;
     const place = (name: string, x: number, z: number, scale = 1, rotation = 0, y = 0, required = false) => {
       const anchor = new THREE.Group();
       anchor.position.set(x, terrainHeight(x, z) + y, z); anchor.rotation.y = rotation;
@@ -339,6 +308,7 @@ export default function Game() {
 
     const obstacles: { x: number; z: number; hx: number; hz: number }[] = [];
     const mapFootprints: { x: number; z: number; hx: number; hz: number }[] = [];
+    mapFootprints.push(...STRUCTURES.map(({x,z,hx,hz})=>({x,z,hx,hz})));
     const building = (name: string, x: number, z: number, scale: number, rotation: number, hx: number, hz: number) => {
       const anchor = place(name, x, z, scale, rotation, 0, true);
       const obstacle = { x, z, hx: (rotation % Math.PI === 0 ? hx : hz), hz: (rotation % Math.PI === 0 ? hz : hx) };
@@ -449,7 +419,10 @@ export default function Game() {
     warmLights.forEach(([x,z,color,intensity]) => { const light = new THREE.PointLight(color, intensity * 1.15, 18, 2); light.position.set(x, terrainHeight(x, z) + 3, z); light.userData.base = intensity; scene.add(light); flickerLights.push(light); });
 
     // Diegetic signage: readable paint, abandoned belongings and paper at each story stop.
+    const regionalSigns: {group:THREE.Group;x:number;z:number}[]=[];
     const paintedBoard = (text: string, x: number, z: number, color = '#e2d7b4', graffiti = false) => {
+      const group=new THREE.Group();scene.add(group);
+      if(!inLegacy(x,z))regionalSigns.push({group,x,z});
       const surface = document.createElement('canvas'); surface.width = 1024; surface.height = 384;
       const ctx = surface.getContext('2d')!;
       ctx.fillStyle = graffiti ? '#29332f' : '#142521'; ctx.fillRect(0, 0, 1024, 384);
@@ -458,13 +431,14 @@ export default function Game() {
       text.split(' / ').forEach((line, i, lines) => ctx.fillText(line, 512, 192 + (i - (lines.length - 1) / 2) * 92, 930));
       const texture = new THREE.CanvasTexture(surface); texture.colorSpace = THREE.SRGBColorSpace;
       const panel = new THREE.Mesh(new THREE.BoxGeometry(3.7, 1.4, 0.12), new THREE.MeshStandardMaterial({ map: texture, roughness: 1, emissive: 0xffffff, emissiveMap: texture, emissiveIntensity: 0.22 }));
-      panel.position.set(x, terrainHeight(x, z) + 1.8, z); scene.add(panel);
-      for (const offset of [-1.5, 1.5]) { const post = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.5, 0.1), gunPostMaterial); post.position.set(x + offset, terrainHeight(x, z) + 0.75, z); scene.add(post); }
+      panel.position.set(x, terrainHeight(x, z) + 1.8, z); group.add(panel);
+      for (const offset of [-1.5, 1.5]) { const post = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.5, 0.1), gunPostMaterial); post.position.set(x + offset, terrainHeight(x, z) + 0.75, z); group.add(post); }
       return panel;
     };
     const gunPostMaterial = new THREE.MeshStandardMaterial({ color: 0x504b3d, roughness: 1 });
     REGIONS.forEach((region, i) => paintedBoard(`${region.name.toUpperCase()} / SEKTOR 0${i + 1}`, region.x - 2, region.z - 8, '#d9ff83'));
     const city = buildCity(scene, terrainHeight, obstacles, paintedBoard);
+    for(const p of REGION_SIGNS)paintedBoard(`${p.name} / GEFAHR ${p.risk+1} · VORRÄTE IM HOF`,p.x,p.z,p.risk>=2?'#edba83':'#d5dfb2');
     const interiorLight = new THREE.PointLight(0xb1c8ad,18,24,2); scene.add(interiorLight);
     const rearInteriorLight = new THREE.PointLight(0xffddb0,0,15,2); scene.add(rearInteriorLight);
     // Lamps stay attached to their poles rather than following the player.
@@ -502,6 +476,9 @@ export default function Game() {
       paintedBoard(`${refuge.name.toUpperCase()} / GESICHERTER UNTERSCHLUPF`,refuge.x+4,refuge.z+refuge.hz+1,'#cde4c1');
       const light = new THREE.PointLight(0xffd8a1,0,22,2); light.position.set(refuge.x,terrainHeight(refuge.x,refuge.z+refuge.hz)+3.2,refuge.z+refuge.hz-2); scene.add(light); refugeLights.push(light);
     }
+    const localLightSources=[redBeacon,...flickerLights,...streetLights,...refugeLights];
+    localLightSources.forEach(light=>scene.remove(light));
+    const localLightPool=makeLocalLightPool(scene);
     // Forest perimeter and an old road lead to the rural shelters.
     for(let i=0;i<42;i++){const x=-168+(i*19%65),z=8+(i*37%143);if(CITY_PLACES.some(p=>Math.hypot(p.x-x,p.z-z)<18)||Math.abs(x+113)<6)continue;place(i%2?'pine':'suburban-tree-large',x,z,1.35+(i%3)*.25,i);}
     for(const z of [-98,-42,8,58,108]) { paintedBoard('← ALTSTADT / ZENTRUM ↑',91,z,'#c8d7bc'); }
@@ -549,8 +526,8 @@ export default function Game() {
       barrel.scale.y=kind==='shotgun'?1.8:kind==='rifle'?1.5:1; slide.scale.z=kind==='rifle'?1.5:1; barrel.position.z=kind==='pistol'?-.4:-.63;
     };
     stock.visible=false;axeHandle.visible=false;axeHead.visible=false;
-    const muzzle = new THREE.PointLight(0xffd267, 0, 5, 2); muzzle.position.set(0, 0, -0.76); weapon.add(muzzle);
-    const muzzleMesh = new THREE.Mesh(new THREE.IcosahedronGeometry(0.11, 0), new THREE.MeshBasicMaterial({ color: 0xffd267 })); muzzleMesh.position.copy(muzzle.position); muzzleMesh.visible = false; weapon.add(muzzleMesh);
+    const muzzle = new THREE.PointLight(0xffd267, 0, 5, 2); muzzle.position.set(.3, -.3, -1.1); camera.add(muzzle);
+    const muzzleMesh = new THREE.Mesh(new THREE.IcosahedronGeometry(0.11, 0), new THREE.MeshBasicMaterial({ color: 0xffd267 })); muzzleMesh.position.set(0,0,-.76); muzzleMesh.visible = false; weapon.add(muzzleMesh);
     const flashlight = new THREE.SpotLight(0xe8ffe0, 0, 32, Math.PI / 5.8, 0.45, 1.3); flashlight.position.set(0, 0, 0); flashlight.target.position.set(0, 0, -8); camera.add(flashlight, flashlight.target);
 
     const npcAnchors: { mara: THREE.Group; noah: THREE.Group } = {
@@ -617,6 +594,13 @@ export default function Game() {
     WORLD_LOOT.forEach(({ kind, x, z, count, y }) => pickup(kind, x, z, count, y));
 
     const enemies: Enemy[] = [];
+    const releaseEnemy=(enemy:Enemy)=>{
+      enemy.mixer?.stopAllAction();if(enemy.mixer)enemy.mixer.uncacheRoot(enemy.mixer.getRoot());
+      const skeletons=new Set<THREE.Skeleton>();
+      enemy.group.traverse(object=>{if(object instanceof THREE.SkinnedMesh)skeletons.add(object.skeleton);if(object instanceof THREE.Mesh){if(object===enemy.hitbox||object===enemy.head)object.geometry.dispose();const materials=Array.isArray(object.material)?object.material:[object.material];materials.forEach(material=>material.dispose());}});
+      skeletons.forEach(skeleton=>skeleton.dispose());
+      scene.remove(enemy.group);
+    };
     const enemyHitboxes: THREE.Mesh[] = [];
     const keys = new Set<string>();
     const clock = new THREE.Clock();
@@ -659,8 +643,16 @@ export default function Game() {
       if (runtime.health <= 0) { runtime.active = false; snapshotHud(); document.exitPointerLock?.(); setDialogue(null); conversation = null; setScreen('dead'); }
     };
     const flares: { object: THREE.Group; life: number }[] = [];
+    const releaseFlare=(object:THREE.Group)=>{
+      object.traverse(child=>{if(child instanceof THREE.Mesh){child.geometry.dispose();const materials=Array.isArray(child.material)?child.material:[child.material];materials.forEach(material=>material.dispose());}});scene.remove(object);
+    };
     const notify = (text: string) => { setNotice(text); runtime.noticeTime = 3.5; };
-    const visibleFrom = (a: THREE.Vector3, b: THREE.Vector3) => !segmentBlocked(a.x, a.z, b.x, b.z, obstacles);
+    const actorObstacles = (a:Point,b:Point,margin=18,cover=false) => {
+      const x=(a.x+b.x)/2,z=(a.z+b.z)/2,hx=Math.abs(a.x-b.x)/2+margin,hz=Math.abs(a.z-b.z)/2+margin;
+      return [...obstacles.filter(o=>Math.abs(o.x-x)<o.hx+hx&&Math.abs(o.z-z)<o.hz+hz),...regionCollision.near(a,b,margin,cover)];
+    };
+    const pathBetween = (a:Point,b:Point,radius=.48) => findPath(a,b,actorObstacles(a,b),radius);
+    const visibleFrom = (a: THREE.Vector3, b: THREE.Vector3) => !segmentBlocked(a.x, a.z, b.x, b.z, actorObstacles(a,b,0,true));
     const snapshotHud = () => setHud({ ...runtime, houses:structuredClone(runtime.houses),learned:[...runtime.learned],inventory: { ...runtime.inventory }, discovered: [...runtime.discovered], health: Math.ceil(runtime.health), stamina: Math.round(runtime.stamina), timer: Math.ceil(runtime.timer), x: camera.position.x, z: camera.position.z });
     const openJournal = (note?: number) => {
       if (conversation) return;
@@ -713,13 +705,15 @@ export default function Game() {
     };
 
     const spawnEnemy = (x?: number, z?: number, tougher = false, requestedKind?: ZombieKind) => {
-      if (enemies.filter(e => e.alive).length >= 40) return;
+      const risk=riskAt(camera.position.x,camera.position.z);
+      const cap=x!==undefined||runtime.stage===DEFENSE?40:[12,22,32,40][risk];
+      if (enemies.filter(e => e.alive).length >= cap) return;
       const angle = Math.random() * Math.PI * 2, distance = 30 + Math.random() * 16;
       const spawnX = THREE.MathUtils.clamp(x ?? camera.position.x + Math.cos(angle) * distance, WORLD.minX + 2, WORLD.maxX - 2);
       const spawnZ = THREE.MathUtils.clamp(z ?? camera.position.z + Math.sin(angle) * distance, WORLD.minZ + 2, WORLD.maxZ - 2);
       if (collides(spawnX, spawnZ) || protectedAt(spawnX,spawnZ,2) || (x === undefined && visibleFrom(camera.position, new THREE.Vector3(spawnX, 0, spawnZ)))) return;
       const roll = Math.random();
-      const kind: ZombieKind = requestedKind ?? (tougher ? 'tank' : roll < .15 ? 'runner' : roll < .27 ? 'crawler' : roll < .4 ? 'infected' : 'walker');
+      const kind: ZombieKind = requestedKind ?? (tougher || risk===3&&roll>.7 ? 'tank' : roll < (risk>=2?.23:.12) ? 'runner' : roll < .27 ? 'crawler' : roll < .4 ? 'infected' : 'walker');
       const spec = ZOMBIES[kind], scale = spec.scale;
       const group = new THREE.Group(); group.position.set(spawnX, terrainHeight(spawnX, spawnZ), spawnZ); scene.add(group);
       const visual = new THREE.Group(); group.add(visual);
@@ -854,7 +848,7 @@ export default function Game() {
         if(!canSleep(runtime.elapsed)){notify('Schlafen ist von 19 bis 06 Uhr möglich.');return;}
         runtime.elapsed=nextHour(runtime.elapsed,6);runtime.health=Math.min(100,runtime.health+35);runtime.stamina=100;runtime.thirst=Math.max(35,runtime.thirst-20);
         runtime.boosted=0;runtime.damageFlash=0;noises.length=0;
-        flares.forEach(f=>scene.remove(f.object));flares.length=0;
+        flares.forEach(f=>releaseFlare(f.object));flares.length=0;
         if(h.id==='lodge'&&runtime.respawn==='lodge')learn('sleep');
         notify('06:00 Uhr · ausgeruht. Vor dem Aufbruch trinken und Türen öffnen.');
       }
@@ -965,7 +959,8 @@ export default function Game() {
         const object = new THREE.Group(); const direction = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw)); object.position.copy(camera.position);
         for (let step = 0; step < 20; step++) { const next = object.position.clone().addScaledVector(direction, 0.5); if (collides(next.x, next.z)) break; object.position.copy(next); }
         object.position.y = terrainHeight(object.position.x, object.position.z) + 0.3;
-        object.add(new THREE.PointLight(0xff582c, 35, 20, 2), new THREE.Mesh(new THREE.IcosahedronGeometry(0.18), new THREE.MeshBasicMaterial({ color: 0xffb75c }))); scene.add(object); flares.push({ object, life: 12 });
+        object.userData.sourceLight=new THREE.PointLight(0xff582c,35,20,2);
+        object.add(new THREE.Mesh(new THREE.IcosahedronGeometry(0.18), new THREE.MeshBasicMaterial({ color: 0xffb75c }))); scene.add(object); flares.push({ object, life: 12 });
       }
       runtime.inventory[kind]--;if(kind==='water')learn('water');if(kind==='flare'&&horizontalDistance(camera.position,OBJECTIVES[RESCUE].target)<25)learn('flare');syncCampaign();notify(kind === 'scrap' ? 'Sender verstärkt · Konvoi 10 s früher' : `${ITEMS[kind].name} verwendet`); tone(520, 0.12, 'sine'); snapshotHud();
     };
@@ -977,9 +972,9 @@ export default function Game() {
       noahAnimation?.actions.run.stop(); noahAnimation?.actions.idle.reset().play();
       npcAnchors.noah.position.set(17, terrainHeight(17, 15), 15);
       noahPath=[];noahPathTime=0;
-      flares.forEach(f => scene.remove(f.object)); flares.length = 0;
+      flares.forEach(f => releaseFlare(f.object)); flares.length = 0;
       flashlight.intensity = 0; recoil = 0; muzzleTime = 0; muzzle.intensity = 0; muzzleMesh.visible = false; weapon.rotation.set(0, 0, 0); setNotice('');
-      enemies.forEach((enemy) => scene.remove(enemy.group)); enemies.length = 0; enemyHitboxes.length = 0;
+      enemies.forEach(releaseEnemy); enemies.length = 0; enemyHitboxes.length = 0;
       camera.position.set(START.x, terrainHeight(START.x, START.z) + 1.72, START.z); yaw = -1.45; pitch = -0.06; camera.rotation.set(pitch, yaw, 0);
       fuelCell.visible = true; serum.visible = true; npcAnchors.noah.visible = false;
       pickups.forEach((item, i) => { item.taken = false; item.object.visible = true; item.count = WORLD_LOOT[i].count; });
@@ -1013,10 +1008,13 @@ export default function Game() {
       aim: (x:number,y:number,z:number) => {const dx=x-camera.position.x,dz=z-camera.position.z; yaw=Math.atan2(-dx,-dz);pitch=Math.atan2(y-camera.position.y,Math.hypot(dx,dz));camera.rotation.set(pitch,yaw,0);},
       pause:()=>{runtime.active=false;triggerHeld=false;}, resume:()=>{runtime.active=true;},
       setTime: (hours:number) => { runtime.elapsed=((hours-9+24)%24)*60; snapshotHud(); },
-      environment: () => ({ ...daylightAt(runtime.elapsed), refuge:refugeAt(camera.position.x,camera.position.z)?.id, sun:sunLight.intensity, moon:moonLight.intensity, fog:scene.fog instanceof THREE.FogExp2?scene.fog.density:0, npcs:cityNpcs.map(n=>({id:n.id,x:n.x,z:n.z})), placements:placements.filter(p=>p.anchor.parent).length,detail:worldDetail?.stats }),
+      environment: () => ({ ...daylightAt(runtime.elapsed), refuge:refugeAt(camera.position.x,camera.position.z)?.id, sun:daylightAt(runtime.elapsed).sunIntensity, moon:daylightAt(runtime.elapsed).moonIntensity, fog:scene.fog instanceof THREE.FogExp2?scene.fog.density:0, npcs:cityNpcs.map(n=>({id:n.id,x:n.x,z:n.z})), placements:placements.filter(p=>p.anchor.parent).length,detail:worldDetail?.stats }),
+      performance: () => ({frameAverageMs:resolutionBudget.averageMs,resolutionScale:resolutionBudget.scale,pixelRatio:renderer.getPixelRatio(),buffer:[canvas.width,canvas.height],trees:treeDetail?.levels(),localLights:localLightPool.slots.length,programs:renderer.info.programs?.length,geometries:renderer.info.memory.geometries,textures:renderer.info.memory.textures,contextLosses,contextLost,frames:renderedFrames}),
+      world: () => ({bounds:WORLD,...regionWorld.stats(),zones:WORLD_ZONES,pois:REGION_POIS,bridges:BRIDGES,structures:STRUCTURES,roads:ROAD_LINES,risk:riskAt(camera.position.x,camera.position.z),dressing:settlementDetail?.stats(),dressingScenes:settlementDetail?.plan.scenes,dressingProps:settlementDetail?.plan.props,dressingBounds:settlementDetail?.bounds}),
+      blocked: (x:number,z:number) => collides(x,z), height:terrainHeight,
     }});
 
-    const collides = (x: number, z: number) => obstacles.some((o) => Math.abs(x - o.x) < o.hx + 0.45 && Math.abs(z - o.z) < o.hz + 0.45);
+    const collides = (x: number, z: number) => regionCollision.blocked(x,z)||obstacles.some((o) => Math.abs(x - o.x) < o.hx + 0.45 && Math.abs(z - o.z) < o.hz + 0.45);
     const moveActor = (position: THREE.Vector3, target: THREE.Vector3, speed: number, dt: number, hostile = false) => {
       const delta = new THREE.Vector3(target.x - position.x, 0, target.z - position.z);
       if (delta.length() < 0.15) return false;
@@ -1028,7 +1026,7 @@ export default function Game() {
         if (!collides(position.x, position.z + delta.z)) position.z += delta.z;
         // Walk along the nearest obstructing wall instead of walking through it.
         if (position.x === beforeX && position.z === beforeZ) {
-          const blocker = obstacles.find(o => Math.abs(position.x + delta.x - o.x) < o.hx + 0.5 && Math.abs(position.z + delta.z - o.z) < o.hz + 0.5);
+          const blocker = actorObstacles(position,position,2).find(o => Math.abs(position.x + delta.x - o.x) < o.hx + 0.5 && Math.abs(position.z + delta.z - o.z) < o.hz + 0.5);
           if (blocker) {
             const sideX = Math.abs(position.x - blocker.x) / blocker.hx > Math.abs(position.z - blocker.z) / blocker.hz;
             const sx = sideX ? 0 : (target.x >= blocker.x ? 1 : -1) * speed * dt;
@@ -1084,11 +1082,55 @@ export default function Game() {
     };
     const onBlur = () => { keys.clear(); triggerHeld = false; runtime.aiming = false; if (runtime.active) { runtime.active = false; setScreen('paused'); document.exitPointerLock?.(); } };
     addEventListener('blur', onBlur);
-    const resize = () => { const w = canvas.clientWidth, h = canvas.clientHeight,ratio=renderer.getPixelRatio(); renderer.setSize(w, h, false); composer.setSize(w, h);antialiasPass.uniforms.resolution.value.set(1/(w*ratio),1/(h*ratio)); camera.aspect = w / Math.max(h, 1); camera.updateProjectionMatrix(); };
-    addEventListener('keydown', onKeyDown); addEventListener('keyup', onKeyUp); addEventListener('mousemove', onMouseMove); addEventListener('resize', resize); document.addEventListener('pointerlockchange', onPointerLock); canvas.addEventListener('mousedown', onMouseDown); resize();
+    let pendingResize=true,contextLost=false,contextLosses=0,renderedFrames=0,shadowElapsed=1;
+    const shadowPosition=new THREE.Vector3(Infinity,0,Infinity);
+    const queueResize=()=>{pendingResize=true;};
+    const resize = () => {
+      const w=canvas.clientWidth,h=canvas.clientHeight;
+      if(w<2||h<2)return;
+      const ratio=renderPixelRatio(w,h,devicePixelRatio,resolutionBudget.scale);
+      if(canvas.width!==Math.floor(w*ratio)||canvas.height!==Math.floor(h*ratio)||renderer.getPixelRatio()!==ratio){
+        renderer.setPixelRatio(ratio);renderer.setSize(w,h,false);composer.setPixelRatio(ratio);composer.setSize(w,h);
+        antialiasPass.uniforms.resolution.value.set(1/(w*ratio),1/(h*ratio));
+        camera.aspect=w/h;camera.updateProjectionMatrix();renderer.shadowMap.needsUpdate=true;
+      }
+      pendingResize=false;
+    };
+    const releaseGpuResources=()=>{
+      composer.passes.forEach(pass=>pass.dispose());composer.dispose();reflections.dispose();sunLight.shadow.map?.dispose();treeDetail?.dispose();
+      sunLight.shadow.map=null;
+      const geometries=new Set<THREE.BufferGeometry>(),materials=new Set<THREE.Material>(),textures=new Set<THREE.Texture>(),skeletons=new Set<THREE.Skeleton>();
+      scene.traverse((object) => {
+        if(object instanceof THREE.SkinnedMesh)skeletons.add(object.skeleton);
+        if(object instanceof THREE.InstancedMesh)object.dispose();
+        if(object instanceof THREE.Mesh||object instanceof THREE.Sprite||object instanceof THREE.Points){
+          if('geometry'in object)geometries.add(object.geometry);
+          const mats=Array.isArray(object.material)?object.material:[object.material];
+          for(const material of mats){materials.add(material);for(const value of Object.values(material))if(value instanceof THREE.Texture)textures.add(value);}
+        }
+      });
+      skeletons.forEach(skeleton=>skeleton.dispose());geometries.forEach(geometry=>geometry.dispose());materials.forEach(material=>material.dispose());textures.forEach(texture=>texture.dispose());releaseSurfaceTextures();
+      textureCache.forEach(texture=>{void texture.then(value=>value.dispose(),()=>undefined);});
+    };
+    const onContextLost=(event:Event)=>{
+      event.preventDefault();contextLost=true;contextLosses++;keys.clear();triggerHeld=false;
+      // Remove old-context disposal hooks before restoration creates new GPU
+      // handles. Deleting those old handles afterwards causes INVALID_OPERATION.
+      releaseGpuResources();
+    };
+    const onContextRestored=()=>{
+      const room=new RoomEnvironment(),generator=new THREE.PMREMGenerator(renderer),restored=generator.fromScene(room,.04);
+      reflections=restored;scene.environment=restored.texture;room.dispose();generator.dispose();
+      renderer.setRenderTarget(composer.renderTarget1);
+      const warming=compileScene(renderer,scene,camera,()=>disposed);renderer.setRenderTarget(null);
+      void warming.then(()=>{if(!disposed){contextLost=false;queueResize();shadowElapsed=1;renderer.shadowMap.needsUpdate=true;}});
+    };
+    const sizeObserver=new ResizeObserver(queueResize);sizeObserver.observe(canvas);
+    canvas.addEventListener('webglcontextlost',onContextLost);canvas.addEventListener('webglcontextrestored',onContextRestored);
+    addEventListener('keydown', onKeyDown); addEventListener('keyup', onKeyUp); addEventListener('mousemove', onMouseMove); addEventListener('resize', queueResize); document.addEventListener('pointerlockchange', onPointerLock); canvas.addEventListener('mousedown', onMouseDown); resize();
 
     // Resolve all real model bounds before removing overlaps in a stable order.
-    const clearLayout = Promise.all(placements.map(p=>p.ready)).then(() => {
+    const clearLayout = Promise.all(placements.map(p=>p.ready)).then(async () => {
       if (disposed) return;
       const occupied = [...obstacles];
       const reserved = [...WORLD_LOOT,...NOTES,...CITY_NPCS,...DISCOVERIES,...questProps,
@@ -1107,15 +1149,28 @@ export default function Game() {
       worldDetail=buildWorldDetail(scene,terrainHeight,detailFootprints,reserved,[...CITY_ROADS,
         {x:0,z:-7,w:145,h:9,rotation:.05},{x:18,z:10,w:8,h:48,rotation:-.55},{x:53,z:0,w:8,h:58,rotation:.42}],obstacles);
       worldDetail.update(camera.position.x,camera.position.z);
+      treeDetail=createTreeDetailController(scene);treeDetail.update(camera.position.x,camera.position.z);
+      settlementDetail=await buildSettlementDetail(scene,[...detailFootprints,...obstacles],reserved,regionCollision,load,()=>disposed);
+      settlementDetail?.update(camera.position.x,camera.position.z);
     });
     Promise.all([
       clearLayout,
       loadFbx(`${MODEL}characters/characterMedium.fbx`), loadFbx(`${MODEL}characters/animations/run.fbx`),
       loadFbx(`${MODEL}characters/animations/idle.fbx`), loadSkin('zombieA'),
       load('suburban-building-type-a'), load('industrial-building-a'),
-    ]).then(() => { if (!disposed) setLoaded(true); }).catch(() => { reportAssetError('Startpaket'); if (!disposed) setLoaded(true); });
+    ]).then(async () => {
+      if(disposed)return;
+      // Match the linear offscreen RenderPass. Compiling against the default
+      // sRGB framebuffer would warm a different set of shader programs.
+      renderer.setRenderTarget(composer.renderTarget1);
+      let compiling:Promise<unknown>;
+      try{compiling=compileScene(renderer,scene,camera,()=>disposed);}finally{renderer.setRenderTarget(null);}
+      await compiling;
+      if(!disposed){renderer.shadowMap.needsUpdate=true;setLoaded(true);}
+    }).catch(() => { reportAssetError('Startpaket'); if (!disposed) setLoaded(true); });
 
     const horizon = new THREE.Color(), zenith = new THREE.Color();
+    let cullTime=0;
     const dayHorizon = new THREE.Color(0xbad5e6), duskHorizon = new THREE.Color(0xf0b68b);
     const dayZenith = new THREE.Color(0x4b9cdb), daySky = new THREE.Color(0xcce6ff), dayGround = new THREE.Color(0x827762), daySun = new THREE.Color(0xfff2da);
     const sunDirection = new THREE.Vector3();
@@ -1131,25 +1186,37 @@ export default function Game() {
       skyLight.color.setHex(0x8ba8d5).lerp(daySky,light.daylight);
       skyLight.groundColor.setHex(0x333e49).lerp(dayGround,light.daylight);
       scene.environmentIntensity=.12+light.daylight*.3;
-      sunLight.intensity=light.sunIntensity; moonLight.intensity=light.moonIntensity;
-      sunLight.visible=light.sunIntensity>0; moonLight.visible=light.moonIntensity>0;
-      sunLight.color.setHex(0xffb778).lerp(daySun,THREE.MathUtils.smoothstep(light.elevation,0,.5));
+      sunLight.intensity=light.sunIntensity+light.moonIntensity;
+      sunLight.color.setHex(light.elevation<0?0xb4cafa:0xffb778);
+      if(light.elevation>=0)sunLight.color.lerp(daySun,THREE.MathUtils.smoothstep(light.elevation,0,.5));
       const direction = sunDirection.set(Math.cos(light.angle),light.elevation,-.35).normalize();
-      sunLight.position.copy(camera.position).addScaledVector(direction,85);
-      moonLight.position.copy(camera.position).addScaledVector(direction,-85);
-      for(const lamp of [sunLight,moonLight]){lamp.target.position.set(camera.position.x,terrainHeight(camera.position.x,camera.position.z),camera.position.z);lamp.target.updateMatrixWorld();}
+      sunLight.position.copy(camera.position).addScaledVector(direction,light.elevation<0?-85:85);
+      sunLight.target.position.set(camera.position.x,terrainHeight(camera.position.x,camera.position.z),camera.position.z);sunLight.target.updateMatrixWorld();
       sun.position.copy(camera.position).addScaledVector(direction,160); sun.visible=light.elevation>-.02;
       moon.position.copy(camera.position).addScaledVector(direction,-160); moon.visible=light.elevation<.02;
       sky.position.copy(camera.position); stars.position.copy(camera.position); stars.material.opacity=light.night*.7;
       mist.forEach(sprite=>{sprite.material.opacity=.015+light.night*.035;});
       refugeLights.forEach(lamp=>{lamp.intensity=light.night*24;});
       streetLights.forEach(lamp=>{lamp.intensity=runtime.powerQuest===3?light.night*24:0;});
+      const sources=[...localLightSources,...(settlementDetail?.lighting(light.night,runtime.powerQuest===3,camera.position)??[])];
+      for(const flare of flares){const source=flare.object.userData.sourceLight as THREE.PointLight;source.position.copy(flare.object.position);sources.push(source);}
+      localLightPool.update(sources,camera.position);
       renderer.toneMappingExposure=1.05+light.night*.08;
     };
     const animate = () => {
-      frame = requestAnimationFrame(animate); const dt = Math.min(clock.getDelta(), 0.045);
+      if(disposed)return;
+      frame = requestAnimationFrame(animate); const elapsed=clock.getDelta(),dt = Math.min(elapsed, 0.045);
+      if(disposed||contextLost||document.hidden)return;
+      if(resolutionBudget.sample(elapsed*1000,runtime.active))pendingResize=true;
+      if(pendingResize)resize();
       if (runtime.active && !conversation) npcMixers.forEach((mixer) => mixer.update(dt));
       const time = performance.now() * 0.001;
+      cullTime-=dt;
+      if(cullTime<=0){
+        cullTime=.16;regionWorld.update(camera.position.x,camera.position.z);city.update(camera.position.x,camera.position.z);worldDetail?.update(camera.position.x,camera.position.z);treeDetail?.update(camera.position.x,camera.position.z);settlementDetail?.update(camera.position.x,camera.position.z);
+        for(const p of placements)p.anchor.visible=Math.hypot(p.anchor.position.x-camera.position.x,p.anchor.position.z-camera.position.z)<180;
+        for(const s of regionalSigns)s.group.visible=Math.hypot(s.x-camera.position.x,s.z-camera.position.z)<180;
+      }
       mist.forEach((sprite, i) => { sprite.position.x += Math.sin(time * 0.12 + i) * dt * 0.22; });
       flames.forEach((flame, i) => { flame.scale.set(1 + Math.sin(time * 9 + i) * 0.13, 1 + Math.sin(time * 13 + i) * 0.22, 1); flame.rotation.y += dt; });
       flickerLights.forEach((light, i) => { light.intensity = light.userData.base * (1 + Math.sin(time * (i === 4 ? 16 : 8) + i) * 0.14); });
@@ -1162,16 +1229,15 @@ export default function Game() {
 
       if (runtime.active && !conversation) {
         runtime.elapsed += dt;
-        city.update(camera.position.x,camera.position.z);worldDetail?.update(camera.position.x,camera.position.z); sky.position.copy(camera.position);
+        sky.position.copy(camera.position);
         const nearestInterior=CITY_PLACES.find(p=>Math.abs(camera.position.x-p.x)<(p.hx??7.5)&&Math.abs(camera.position.z-p.z)<(p.hz??7));
-        interiorLight.visible=!!nearestInterior;
-        rearInteriorLight.visible=!!nearestInterior?.hx;
+        interiorLight.intensity=0;rearInteriorLight.intensity=0;
         if(nearestInterior){
           const narrow=nearestInterior.hx===4, y=terrainHeight(nearestInterior.x,nearestInterior.z)+2.95;
           interiorLight.position.set(nearestInterior.x,y,nearestInterior.z+(narrow?4.8:0));
           interiorLight.color.set(narrow?0xffddb0:0xb1c8ad);
           interiorLight.intensity=(runtime.powerQuest===3?36:narrow?22:12)*(1+Math.sin(runtime.elapsed*12)*.025);
-          rearInteriorLight.position.set(nearestInterior.x,y,nearestInterior.z-4.8);rearInteriorLight.intensity=interiorLight.intensity;
+          rearInteriorLight.position.set(nearestInterior.x,y,nearestInterior.z-4.8);rearInteriorLight.intensity=nearestInterior.hx?interiorLight.intensity:0;
         }
         runtime.thirst=Math.max(0,runtime.thirst-dt*.07);
         if(runtime.infection>=75)runtime.health=Math.max(1,runtime.health-dt*.3);
@@ -1205,7 +1271,7 @@ export default function Game() {
         runtime.ambientTime -= dt;
         if (runtime.ambientTime <= 0) { tone(65 + Math.random() * 35, 1.4, 'sine', 0.009); soundBurst(1.8,350,.028);const close=enemies.find(e=>e.alive&&horizontalDistance(e.group.position,camera.position)<22);if(close){soundBurst(.65,180,.13,close.group.position);tone(54,.7,'sawtooth',.012);}runtime.ambientTime = 5 + Math.random() * 7; }
         if (flashlight.intensity > 0) { runtime.battery = Math.max(0, runtime.battery - dt * 0.65); if (runtime.battery <= 0) { flashlight.intensity = 0; notify('Batterie leer · [3] wechseln'); } }
-        for (let i = flares.length - 1; i >= 0; i--) { flares[i].life -= dt; if (flares[i].life <= 0) { scene.remove(flares[i].object); flares.splice(i, 1); } }
+        for (let i = flares.length - 1; i >= 0; i--) { flares[i].life -= dt; if (flares[i].life <= 0) { releaseFlare(flares[i].object); flares.splice(i, 1); } }
         camera.rotation.set(pitch + recoil, yaw, 0);
         recoil = THREE.MathUtils.lerp(recoil, 0, 1 - Math.pow(0.002, dt));
         muzzleTime -= dt; if (muzzleTime <= 0) { muzzle.intensity = 0; muzzleMesh.visible = false; }
@@ -1232,13 +1298,13 @@ export default function Game() {
         }
 
         if (runtime.stage > 0) runtime.spawn -= dt;
-        if (runtime.spawn <= 0) { spawnEnemy(undefined, undefined, Math.random() < 0.12); runtime.spawn = runtime.stage === DEFENSE ? 1.4 + Math.random() : 10 + Math.random() * 6; }
+        if (runtime.spawn <= 0) {const risk=riskAt(camera.position.x,camera.position.z);spawnEnemy(undefined, undefined, Math.random() < [0,.06,.12,.3][risk]); runtime.spawn = runtime.stage === DEFENSE ? 1.4 + Math.random() : [30,15,8,3.5][risk]+Math.random()*5; }
         if (runtime.learned.includes('noah')) {
           const followX = camera.position.x + Math.sin(yaw) * 2.4, followZ = camera.position.z + Math.cos(yaw) * 2.4;
           const followTarget = new THREE.Vector3(followX, terrainHeight(followX, followZ), followZ);
           const followDelta = followTarget.clone().sub(npcAnchors.noah.position);
           noahPathTime-=dt;
-          if(noahPathTime<=0){noahPath=findPath(npcAnchors.noah.position,followTarget,obstacles);if(!noahPath.length)noahPath=findPath(npcAnchors.noah.position,camera.position,obstacles);noahPathTime=.8;}
+          if(noahPathTime<=0){noahPath=pathBetween(npcAnchors.noah.position,followTarget);if(!noahPath.length)noahPath=pathBetween(npcAnchors.noah.position,camera.position);noahPathTime=.8;}
           while(noahPath.length&&Math.hypot(noahPath[0].x-npcAnchors.noah.position.x,noahPath[0].z-npcAnchors.noah.position.z)<.6)noahPath.shift();
           const waypoint=noahPath[0];const before=npcAnchors.noah.position.clone();
           const walking = followDelta.length() > 2.2 && !!waypoint && moveActor(npcAnchors.noah.position,new THREE.Vector3(waypoint.x,0,waypoint.z),5.2,dt);
@@ -1247,25 +1313,27 @@ export default function Game() {
           if (walking !== noahMoving && noahAnimation) { noahAnimation.actions[walking ? 'idle' : 'run'].fadeOut(0.25); noahAnimation.actions[walking ? 'run' : 'idle'].reset().fadeIn(0.25).play(); noahMoving = walking; }
         }
         npcAnchors.mara.rotation.y = Math.atan2(camera.position.x - npcAnchors.mara.position.x, camera.position.z - npcAnchors.mara.position.z);
+        let pathBudget=2;
         for (let i=enemies.length-1;i>=0;i--) {
           const enemy=enemies[i], distance=horizontalDistance(camera.position,enemy.group.position);
           if (!enemy.alive) {
             enemy.deathTime -= dt; enemy.animator?.update(dt,enemy.brain,0,runtime.elapsed);
-            if(enemy.deathTime<=0) { scene.remove(enemy.group); enemy.mixer?.stopAllAction(); enemy.group.traverse(o=>{if(o instanceof THREE.Mesh){if(o===enemy.hitbox||o===enemy.head)o.geometry.dispose();const mats=Array.isArray(o.material)?o.material:[o.material];mats.forEach(m=>m.dispose());}}); enemies.splice(i,1); }
+            if(enemy.deathTime<=0) { releaseEnemy(enemy);enemies.splice(i,1); }
             continue;
           }
           enemy.group.visible = distance < 105;
           if(distance>110){enemy.alive=false;enemy.deathTime=0;for(const box of [enemy.hitbox,enemy.head]){const n=enemyHitboxes.indexOf(box);if(n>=0)enemyHitboxes.splice(n,1);}continue;}
           if(distance>95)continue;
           const lureNoises: Stimulus[] = flares.map(f=>({x:f.object.position.x,z:f.object.position.z,radius:23,life:f.life,kind:'flare'}));
-          const result = think(enemy.brain,enemy.kind,enemy.group.position,camera.position,enemy.group.rotation.y,obstacles,[...noises,...lureNoises],dt);
+          const result = think(enemy.brain,enemy.kind,enemy.group.position,camera.position,enemy.group.rotation.y,actorObstacles(enemy.group.position,camera.position,2,true),[...noises,...lureNoises],dt);
           if(result.strike&&!protectedAt(camera.position.x,camera.position.z))hurtPlayer(ZOMBIES[enemy.kind].damage);
           const beforeX=enemy.group.position.x,beforeZ=enemy.group.position.z;
           enemy.pathTime-=dt;
           if(result.speed>0) {
             const target=enemy.brain.target;
-            if(enemy.pathTime<=0 || Math.hypot(target.x-enemy.lastPathTarget.x,target.z-enemy.lastPathTarget.z)>4) {
-              enemy.path=findPath(enemy.group.position,target,obstacles,.5);enemy.lastPathTarget={...target};enemy.pathTime=.85+enemy.phase*.12;
+            if(pathBudget>0&&(enemy.pathTime<=0 || Math.hypot(target.x-enemy.lastPathTarget.x,target.z-enemy.lastPathTarget.z)>4)) {
+              pathBudget--;
+              enemy.path=pathBetween(enemy.group.position,target,.5);enemy.lastPathTarget={...target};enemy.pathTime=.85+enemy.phase*.12;
             }
             while(enemy.path.length && Math.hypot(enemy.path[0].x-beforeX,enemy.path[0].z-beforeZ)<.45)enemy.path.shift();
             const waypoint=enemy.path[0];
@@ -1310,14 +1378,23 @@ export default function Game() {
         noteObjects.forEach((paper, i) => { (paper.material as THREE.MeshStandardMaterial).emissiveIntensity = runtime.discovered.includes(i) ? 0.05 : 0.4 + Math.sin(time * 2) * 0.15; });
 
         const cityLocation=CITY_PLACES.filter(p=>Math.hypot(p.x-camera.position.x,p.z-camera.position.z)<27).sort((a,b)=>Math.hypot(a.x-camera.position.x,a.z-camera.position.z)-Math.hypot(b.x-camera.position.x,b.z-camera.position.z))[0];
-        const currentLocation = cityLocation ? {name:cityLocation.name,subtitle:cityLocation.story} : camera.position.x>85?{name:'TANNWALD · OSTSTADT',subtitle:'RINGSTRASSE · EVAKUIERUNGSSEKTOR'}:camera.position.x<-95?{name:'BIRKENRAIN',subtitle:'WALDWEG · AUSSENGEBIET'}:LOCATIONS.find((item) => item.test(camera.position.x, camera.position.z))!;
+        const poi=REGION_POIS.find(p=>Math.hypot(p.x-camera.position.x,p.z-camera.position.z)<55),zone=zoneAt(camera.position.x,camera.position.z);
+        const regionPlace=poi??zone;
+        if(regionPlace&&!inLegacy(camera.position.x,camera.position.z)&&!runtime.visited.includes(regionPlace.id)){
+          runtime.visited.push(regionPlace.id);
+          if(regionPlace.risk>0)spawnPack(regionPlace.x+15,regionPlace.z-15,[0,3,6,9][regionPlace.risk]);
+        }
+        const currentLocation = cityLocation ? {name:cityLocation.name,subtitle:cityLocation.story} : !inLegacy(camera.position.x,camera.position.z)?{name:regionPlace?.name??'TANNWALD · FREIE LANDSCHAFT',subtitle:`${regionPlace?.detail??'Weiden und Waldsäume zwischen den Orten.'} · RISIKO ${riskAt(camera.position.x,camera.position.z)+1}/4`}:camera.position.x>85?{name:'TANNWALD · OSTSTADT',subtitle:'RINGSTRASSE · EVAKUIERUNGSSEKTOR'}:camera.position.x<-95?{name:'BIRKENRAIN',subtitle:'WALDWEG · AUSSENGEBIET'}:LOCATIONS.find((item) => item.test(camera.position.x, camera.position.z))!;
         if (currentLocation.name !== runtime.locationName) { runtime.locationName = currentLocation.name; setLocation({ name: currentLocation.name, subtitle: currentLocation.subtitle }); locationTime = 3.2; }
         if (locationTime > 0) { locationTime -= dt; if (locationTime <= 0) setLocation(null); }
         runtime.hudTick -= dt;
         if (runtime.hudTick <= 0) { snapshotHud(); runtime.hudTick = 0.12; }
       }
       weapon.visible = !conversation;
-      updateEnvironment(); renderer.info.reset(); composer.render();
+      if(muzzle.intensity>0){muzzleMesh.getWorldPosition(muzzle.position);camera.worldToLocal(muzzle.position);if(conversation)muzzle.intensity=0;}
+      updateEnvironment();shadowElapsed+=dt;
+      if(shadowElapsed>=.06||shadowPosition.distanceToSquared(camera.position)>1){renderer.shadowMap.needsUpdate=true;shadowElapsed=0;shadowPosition.copy(camera.position);}
+      renderer.info.reset();composer.render();renderedFrames++;
     };
     animate();
 
@@ -1325,8 +1402,9 @@ export default function Game() {
       disposed = true; apiRef.current = null; cancelAnimationFrame(frame); document.exitPointerLock?.();
       if(process.env.NODE_ENV !== 'production')Reflect.deleteProperty(window,'__nachtwache');
       removeEventListener('blur', onBlur); removeEventListener('mouseup',onMouseUp); canvas.removeEventListener('contextmenu',onContext); audio?.close();
-      removeEventListener('keydown', onKeyDown); removeEventListener('keyup', onKeyUp); removeEventListener('mousemove', onMouseMove); removeEventListener('resize', resize); document.removeEventListener('pointerlockchange', onPointerLock); canvas.removeEventListener('mousedown', onMouseDown);
-      composer.dispose();reflections.dispose(); renderer.dispose(); scene.traverse((object) => { if (object instanceof THREE.Mesh) { object.geometry?.dispose(); const mats = Array.isArray(object.material) ? object.material : [object.material]; mats.forEach((mat) => mat?.dispose()); } });
+      removeEventListener('keydown', onKeyDown); removeEventListener('keyup', onKeyUp); removeEventListener('mousemove', onMouseMove); removeEventListener('resize', queueResize); document.removeEventListener('pointerlockchange', onPointerLock); canvas.removeEventListener('mousedown', onMouseDown);
+      sizeObserver.disconnect();canvas.removeEventListener('webglcontextlost',onContextLost);canvas.removeEventListener('webglcontextrestored',onContextRestored);
+      releaseGpuResources();renderer.dispose();
     };
   }, []);
 
@@ -1343,7 +1421,7 @@ export default function Game() {
       <div className="vignette" aria-hidden="true" /><div className="grain" aria-hidden="true" />
 
       {screen === 'playing' && !dialogue && <div className="hud">
-        <div className="field-status"><span>TANNWALD · TAG {daylightAt(hud.elapsed).day} · {daylightAt(hud.elapsed).clock} · {daylightAt(hud.elapsed).period}</span>{refugeAt(hud.x,hud.z)&&<b>GESICHERTER UNTERSCHLUPF</b>}<b>{hud.battery < 20 ? 'LAMPE FAST LEER' : 'TASCHENLAMPE'} {Math.ceil(hud.battery)}%</b><span>{hud.hasMap ? '[M] Karte · [J] Journal' : '[J] Ausrüstung · Karte bei Mara'} · {hud.visited.length}/{CITY_PLACES.length} Orte</span><span>WASSER {Math.ceil(hud.thirst)}% · SCHUTZ {Math.ceil(hud.protection)}</span>{hud.infection>0 && <span className={hud.infection>70?'infected':''}>INFEKTION {Math.ceil(hud.infection)}% · [7] behandeln</span>}</div>
+        <div className="field-status"><span>TANNWALD · TAG {daylightAt(hud.elapsed).day} · {daylightAt(hud.elapsed).clock} · {daylightAt(hud.elapsed).period}</span>{refugeAt(hud.x,hud.z)&&<b>GESICHERTER UNTERSCHLUPF</b>}<b>{hud.battery < 20 ? 'LAMPE FAST LEER' : 'TASCHENLAMPE'} {Math.ceil(hud.battery)}%</b><span>{hud.hasMap ? '[M] Karte · [J] Journal' : '[J] Ausrüstung · Karte bei Mara'} · {hud.visited.filter(id=>EXPLORABLE_IDS.includes(id)).length}/{EXPLORABLE_IDS.length} Orte</span><span>WASSER {Math.ceil(hud.thirst)}% · SCHUTZ {Math.ceil(hud.protection)}</span>{hud.infection>0 && <span className={hud.infection>70?'infected':''}>INFEKTION {Math.ceil(hud.infection)}% · [7] behandeln</span>}</div>
         <header className="fps-mission">
           <div><small>{objective.place} · AUFTRAG {hud.stage + 1}/{OBJECTIVES.length}</small><strong>{objective.title}</strong><span>{objective.detail}</span></div>
           <b>{hud.distance}<small>M</small></b>
@@ -1370,7 +1448,7 @@ export default function Game() {
           <section className="quest-log"><h3>Eigene Unterschlüpfe</h3><p>Vier Fenster × 2 Bretter, zwei Türen × 1 Ersatzteil und ein Bett × 1 Ration. E am Bett aktiviert den Ort. Türen zum Schutz schließen; nachts von 19 bis 06 Uhr schlafen.</p>{SAFEHOUSES.map(h=><article key={h.id}><b>{h.name}{hud.respawn===h.id?' · RESPAWNPUNKT':''}</b><p>Fenster {hud.houses[h.id].windows.filter(Boolean).length}/4 · Türen {hud.houses[h.id].reinforced.filter(Boolean).length}/2 · Bett {hud.houses[h.id].bed?'bereit':'offen'} · {houseProtected(hud.houses[h.id])?'gesichert':hud.houses[h.id].claimed?'Türen offen':'noch nicht aktiviert'}</p></article>)}</section>
           <section className="quest-log"><h3>Offene Spuren</h3><article><b>Das Licht der Oststadt</b><p>{hud.powerQuest===0?'Lenz wartet im gesicherten Schulhof der Oststadt.':hud.powerQuest===1?'Durchsuche die Werkstatt an der Ringstraße nach einer Sicherung.':hud.powerQuest===2?'Bring die Sicherung und zwei Ersatzteile zum Generator bei Lenz.':'✓ Strom wiederhergestellt. Der Polizeischlüssel öffnet die Waffenkammer.'}</p></article><article><b>Ein Name auf der Liste</b><p>{hud.benQuest===0?'In der Notaufnahme der Oststadt sucht Dr. Weber einen Vermissten.':hud.benQuest>=4?'✓ Ben lebt. Dr. Weber hat deine Wunden versorgt.':hud.benQuest===3?'Melde Dr. Weber im Krankenhaus, dass Ben im Waldcamp lebt.':hud.evidence.includes('ambulance')?'Folge dem Waldweg zum Camp am Birkenrain, südwestlich der Stadt.':hud.evidence.includes('triage')?'Suche das Funkprotokoll im Bahnhof im Süden.':'Suche die Patientenliste im Krankenhaus.'}</p></article><article><b>Was Falk verschwieg</b><p>{hud.evidence.includes('archive')?'✓ Original des Abbruchbefehls gesichert.':hud.keycard?'Keycard gefunden. Das Lazarus-Archiv braucht außerdem Strom.':'Am Kontrollpunkt Nord liegt der Zugang zum Lazarus-Archiv.'}</p></article></section>
           <div className="region-list">{CITY_PLACES.filter(p=>hud.visited.includes(p.id)).map(p=><div key={p.id}><b>{p.name}</b><p>{p.story}</p></div>)}</div>
-          <div className="region-list">{REGIONS.map((region, i) => <div key={region.name}><b>0{i + 1} · {region.name}</b><span>{region.loot}</span><p>{region.detail}</p></div>)}</div></div>
+          <div className="region-list">{REGIONS.map((region, i) => <div key={region.name}><b>0{i + 1} · {region.name}</b><span>{region.loot}</span><p>{region.detail}</p></div>)}{WORLD_ZONES.map(region=><div key={region.id}><b>{region.name}</b><span>RISIKO {region.risk+1}/4 · {hud.visited.includes(region.id)?'ERKUNDET':'UNERKUNDET'}</span><p>{region.detail}</p></div>)}</div></div>
         </div> : journalTab === 'inventory' ? <div className="equipment-layout"><aside className="inventory-panel"><h3>Waffen & Ausrüstung</h3><p className="ammo-stock">Reserve: 9 mm {hud.arsenal.pistol.reserve} · 12/70 {hud.arsenal.shotgun.reserve} · 5.56 mm {hud.arsenal.rifle.reserve}</p>{(Object.keys(WEAPONS) as WeaponKind[]).filter(k=>hud.arsenal[k].owned).map(k=><div key={k}><section><b>{hud.weapon===k?'● ':''}{WEAPONS[k].name}</b><p>{k==='axe'?'Nahkampf · 20 Ausdauer · 2,6 m':WEAPONS[k].ammo + ' · ' + hud.arsenal[k].ammo + ' / ' + hud.arsenal[k].reserve + ' Patronen'}</p></section></div>)}<p className="journal-tip">[Q] Waffe wechseln · [R] Nachladen · Rechte Maus: zielen. Nachladen wird beim Waffenwechsel abgebrochen.</p>{(Object.entries(ITEMS) as [ItemKind, typeof ITEMS[ItemKind]][]).map(([kind, item]) => <div key={kind}><kbd>{item.key}</kbd><section><b>{item.name} <em>×{hud.inventory[kind]}</em></b><p>{item.purpose}</p></section></div>)}<p className="journal-tip">Mit E sammeln und Briefe lesen. Gehen ist leise; Sprinten und Schüsse locken Infizierte an. Fackeln geben dir Zeit zum Durchbrechen.</p><p className="journal-tip">{hud.repaired ? '✓ Sender verstärkt.' : 'Am Funkturm: [5] mit drei Ersatzteilen.'}</p></aside>
         </div> : <div className="notes-layout"><aside>{NOTES.map((note, i) => <button type="button" key={note.title} disabled={!hud.discovered.includes(i)} aria-pressed={selectedNote === i} onClick={() => setSelectedNote(i)}><small>SEKTOR 0{i + 1}</small>{hud.discovered.includes(i) ? note.title : 'Noch nicht gefunden'}</button>)}</aside><article className="letter">{hud.discovered.includes(selectedNote) ? <><p className="eyebrow">{NOTES[selectedNote].author}</p><h3>{NOTES[selectedNote].title}</h3><p>{NOTES[selectedNote].text}</p><footer>Am Fundort: „{NOTES[selectedNote].graffiti.replaceAll(' / ', ' · ')}“</footer></> : <><h3>Jeder Ort hat eine Stimme.</h3><p>Suche nach hellen Briefen auf Kisten und bemalten Tafeln. Gesammelte Briefe kannst du hier jederzeit wieder lesen.</p></>}</article></div>}
         {journalTab==='notes'&&hud.evidence.length>0&&<div className="evidence-list"><h3>Spuren aus der Oststadt</h3>{DISCOVERIES.filter(n=>hud.evidence.includes(n.id)).map(n=><article key={n.id}><h4>{n.title}</h4><p>{n.text}</p></article>)}{hud.evidence.includes('ben')&&<article><h4>Leas Foto · Ben lebt</h4><p>Ben hat das Waldcamp erreicht. Lea und die Kinder sind mit dem Konvoi in Sicherheit.</p></article>}</div>}

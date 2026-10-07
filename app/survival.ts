@@ -1,8 +1,9 @@
 import { segmentBlocked } from './world.ts';
+import { REGION_BOUNDS } from './regionPlan.ts';
 
 export type Point = { x: number; z: number };
 export type Obstacle = Point & { hx: number; hz: number };
-export const WORLD = { minX: -180, maxX: 240, minZ: -185, maxZ: 160 };
+export const WORLD = REGION_BOUNDS;
 export const ZOMBIES = {
   walker: { name: 'Wandler', health: 90, speed: 1.45, damage: 12, scale: 1, windup: .72, recovery: 1.1, sight: 17 },
   runner: { name: 'Hetzer', health: 65, speed: 4.1, damage: 9, scale: .95, windup: .48, recovery: 1, sight: 23 },

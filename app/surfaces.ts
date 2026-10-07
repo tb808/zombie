@@ -76,6 +76,9 @@ export function surfacePixels(kind: SurfaceKind, size = 256) {
 
 type DetailTextures = { color: THREE.DataTexture; relief: THREE.DataTexture; roughness: THREE.DataTexture };
 const sharedTextures = new Map<SurfaceKind, DetailTextures>();
+export function releaseSurfaceTextures() {
+  for(const detail of sharedTextures.values())Object.values(detail).forEach(texture=>texture.dispose());
+}
 function textures(kind: SurfaceKind) {
   if (!sharedTextures.has(kind)) {
     const pixels = surfacePixels(kind);

@@ -6,6 +6,7 @@ import { REFUGES } from './environment';
 import { WORLD, type Point } from './survival';
 import { REGIONS } from './world';
 import { SAFEHOUSES, houseProtected, type HouseState } from './safehouses';
+import { ROAD_LINES, WATER_LINES, LAKES, FIELDS, FORESTS, BRIDGES, WORLD_ZONES, REGION_POIS } from './regionPlan';
 
 type Footprint = { x: number; z: number; hx: number; hz: number };
 type View = { x: number; z: number; zoom: number };
@@ -13,7 +14,7 @@ const width = WORLD.maxX - WORLD.minX, height = WORLD.maxZ - WORLD.minZ;
 const overview: View = { x: (WORLD.minX + WORLD.maxX) / 2, z: (WORLD.minZ + WORLD.maxZ) / 2, zoom: 1 };
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 function bounded(view: View): View {
-  const zoom = clamp(view.zoom, 1, 6), hx = width / zoom / 2, hz = height / zoom / 2;
+  const zoom = clamp(view.zoom, 1, 24), hx = width / zoom / 2, hz = height / zoom / 2;
   return { zoom, x: clamp(view.x, WORLD.minX + hx, WORLD.maxX - hx), z: clamp(view.z, WORLD.minZ + hz, WORLD.maxZ - hz) };
 }
 
@@ -22,7 +23,7 @@ export default function WorldMap({ player, target, visited, buildings, houses, r
   const svgRef = useRef<SVGSVGElement>(null);
   const drag = useRef<{ pointer: number; x: number; y: number; view: View; scaleX: number; scaleY: number } | null>(null);
   const zoom = useCallback((factor: number, anchor?: Point) => setView(old => {
-    const nextZoom = clamp(old.zoom * factor, 1, 6), ratio = old.zoom / nextZoom;
+    const nextZoom = clamp(old.zoom * factor, 1, 24), ratio = old.zoom / nextZoom;
     return bounded({ zoom: nextZoom, x: anchor ? anchor.x + (old.x - anchor.x) * ratio : old.x, z: anchor ? anchor.z + (old.z - anchor.z) * ratio : old.z });
   }), []);
   useEffect(() => {
@@ -38,7 +39,8 @@ export default function WorldMap({ player, target, visited, buildings, houses, r
     svg.addEventListener('wheel', onWheel, { passive: false });
     return () => svg.removeEventListener('wheel', onWheel);
   }, [zoom]);
-  const markerScale = 1 / Math.sqrt(view.zoom);
+  const markerScale = 3 / Math.sqrt(view.zoom);
+  const path = (points: Point[]) => points.map((p,i)=>`${i?'L':'M'}${p.x} ${p.z}`).join(' ');
   const cityBlocks = [
     ...[105, 136, 167, 198].flatMap(x => [-161, 138].map(z => ({ x, z, hx: 5.5, hz: 6 }))),
   ];
@@ -48,9 +50,9 @@ export default function WorldMap({ player, target, visited, buildings, houses, r
     <header className="map-toolbar"><div><span className="eyebrow">MARAS FELDKARTE</span><h3>Tannwald & Umgebung</h3></div><div className="map-buttons">
       <button type="button" aria-label="Karte verkleinern" disabled={view.zoom <= 1} onClick={() => zoom(1 / 1.3)}>−</button>
       <output aria-label="Kartenzoom">{Math.round(view.zoom * 100)} %</output>
-      <button type="button" aria-label="Karte vergrößern" disabled={view.zoom >= 6} onClick={() => zoom(1.3)}>+</button>
+      <button type="button" aria-label="Karte vergrößern" disabled={view.zoom >= 24} onClick={() => zoom(1.3)}>+</button>
       <button type="button" onClick={() => setView(overview)}>Ganze Karte</button>
-      <button type="button" onClick={() => setView(bounded({ ...player, zoom: Math.max(3, view.zoom) }))}>Mein Standort</button>
+      <button type="button" onClick={() => setView(bounded({ ...player, zoom: Math.max(10, view.zoom) }))}>Mein Standort</button>
     </div></header>
     <div className="map-viewport"><svg ref={svgRef} viewBox={`${view.x - width / view.zoom / 2} ${view.z - height / view.zoom / 2} ${width / view.zoom} ${height / view.zoom}`} role="img" aria-label="Gesamte Spielwelt mit Straßen, Gebäuden, Unterschlüpfen, Standort und Missionsziel" tabIndex={0}
       onKeyDown={event => {
@@ -74,26 +76,36 @@ export default function WorldMap({ player, target, visited, buildings, houses, r
         <pattern id="field-map-forest" width="13" height="15" patternUnits="userSpaceOnUse"><path d="M6 3l-2 4h4ZM6 6l-3 4h6Z" fill="#748363" opacity=".3" /></pattern>
       </defs>
       <rect x={WORLD.minX} y={WORLD.minZ} width={width} height={height} fill="#d8d2b5" />
+      {FORESTS.map(([x,z,rx,ry],i)=><ellipse key={`forest-${i}`} cx={x} cy={z} rx={rx} ry={ry} fill="#a6af87" stroke="#a6af87" strokeWidth="40" opacity=".75"/>)}
+      {FIELDS.map(f=><rect key={f.id} x={f.x-f.hx} y={f.z-f.hz} width={f.hx*2} height={f.hz*2} rx="8" fill={['#c4bd89','#babd88','#cdc59d'][f.crop]} stroke="#aaa579" strokeWidth="2"/>)}
       <path d="M-180-185H83V-60L-82-62L-93 45L-160 160H-180ZM-180-185V160H240V152L81 60L38 55L-43 45L-86-8L-82-62L83-60V-185Z" fill="#a6af87" />
-      <rect x={WORLD.minX} y={WORLD.minZ} width={width} height={height} fill="url(#field-map-forest)" />
+      {FORESTS.map(([x,z,rx,ry],i)=><ellipse key={`forest-pattern-${i}`} cx={x} cy={z} rx={rx} ry={ry} fill="url(#field-map-forest)"/>)}
       <rect x="83" y="-173" width="139" height="324" rx="8" fill="#c8c4ac" />
+      {WORLD_ZONES.filter(z=>z.biome==='city').map(z=><rect key={z.id} x={z.x-z.hx} y={z.z-z.hz} width={z.hx*2} height={z.hz*2} rx="30" fill="#c8c4ac" opacity=".6"/>)}
+      {WATER_LINES.map(w=><path key={w.id} d={path(w.samples)} fill="none" stroke="#7ea5ae" strokeWidth={w.width} strokeLinecap="round" strokeLinejoin="round"/>)}
+      {LAKES.map(l=><ellipse key={l.id} cx={l.x} cy={l.z} rx={l.rx} ry={l.rz} fill="#7ea5ae" stroke="#69939b" strokeWidth="2"/>)}
       <rect x={WORLD.minX} y={WORLD.minZ} width={width} height={height} fill="url(#field-map-grid)" />
       <g fill="#ece8d5" stroke="#8c8b77" strokeWidth=".5">
+        {ROAD_LINES.map(r=><path key={r.id} d={path(r.samples)} fill="none" stroke={r.kind==='forest'||r.kind==='field'?'#a39370':'#ece8d5'} strokeWidth={r.width} strokeLinecap="round" strokeLinejoin="round"/>)}
         {CITY_ROADS.map((road, i) => <rect key={i} x={road.x - road.w / 2} y={road.z - road.h / 2} width={road.w} height={road.h} />)}
         {[{ x: 0, z: -7, w: 145, h: 9, rotation: .05 }, { x: 18, z: 10, w: 8, h: 48, rotation: -.55 }, { x: 53, z: 0, w: 8, h: 58, rotation: .42 }].map((road, i) => <rect key={`old-${i}`} x={road.x - road.w / 2} y={road.z - road.h / 2} width={road.w} height={road.h} transform={`rotate(${-road.rotation * 180 / Math.PI} ${road.x} ${road.z})`} />)}
       </g>
+      {BRIDGES.map(b=><rect key={b.id} x={b.x-b.width/2} y={b.z-b.length/2} width={b.width} height={b.length} fill="#e4d9b5" stroke="#665f4e" strokeWidth="1" transform={`rotate(${-b.rotation*180/Math.PI} ${b.x} ${b.z})`}><title>Brücke · strategischer Übergang</title></rect>)}
       <g fill="#8a8978" stroke="#686c5c" strokeWidth=".4">{[...buildings, ...cityBlocks].map((b, i) => <rect key={i} x={b.x - b.hx} y={b.z - b.hz} width={b.hx * 2} height={b.hz * 2} />)}</g>
       {REFUGES.map(r => <rect key={r.id} x={r.x - r.hx} y={r.z - r.hz} width={r.hx * 2} height={r.hz * 2} fill="#539b6733" stroke="#376b4d" strokeWidth=".8" strokeDasharray="2 1" />)}
-      <text x="151" y="-176" fontSize="7" textAnchor="middle" fill="#626c58" letterSpacing="2">OSTSTADT</text>
+      {WORLD_ZONES.filter(z=>z.biome==='village'||z.id==='MAIN_CITY'||z.id==='MILITARY_BASE'||z.id==='INDUSTRIAL_ZONE').map(z=><g key={z.id}><circle cx={z.x} cy={z.z} r={4*markerScale} fill={z.risk===3?'#9d5644':z.risk===2?'#a57945':'#637b62'}/><text x={z.x} y={z.z-18*markerScale} fontSize={6*markerScale} textAnchor="middle" fill="#485644">{z.name}<title>{z.detail} · Risiko {z.risk+1}/4</title></text></g>)}
+      {view.zoom>=1.6&&REGION_POIS.map(p=><g key={p.id}><circle cx={p.x} cy={p.z} r={2.5*markerScale} fill="#786643"/>{label(p.name,p.x,p.z+9*markerScale)}<title>{p.detail} · Risiko {p.risk+1}/4{visited.includes(p.id)?' · erkundet':''}</title></g>)}
+      {view.zoom<4&&<text x="-520" y="710" fontSize="25" textAnchor="middle" fill="#536b50" letterSpacing="3">SÜDLICHER TANNWALD</text>}
+      {view.zoom<4&&<text x="-480" y="-950" fontSize="25" textAnchor="middle" fill="#536b50" letterSpacing="3">HOCHFORST</text>}
       <text x="-132" y="42" fontSize="6" textAnchor="middle" fill="#536b50" letterSpacing="1">BIRKENRAIN</text>
       <text x="-53" y="-116" fontSize="8" fill="#748263" letterSpacing="3">TANNWALD</text>
-      {CITY_PLACES.map(place => <g key={place.id}><title>{place.name} · begehbar{visited.includes(place.id) ? ' · erkundet' : ''}</title><rect x={place.x - (place.hx??7.5)} y={place.z - (place.hz??7)} width={(place.hx??7.5)*2} height={(place.hz??7)*2} fill={visited.includes(place.id) ? '#637b62' : '#a1987d'} stroke="#5f6854" strokeWidth=".5" />{label(place.name.split(' · ')[0], place.x, place.z + 14 * markerScale)}</g>)}
-      {REGIONS.map((region, i) => <g key={region.name}><circle cx={region.x} cy={region.z} r={3 * markerScale} fill="#435c4b" />{label(`${i + 1} · ${region.name}`, region.x, region.z + 10 * markerScale)}</g>)}
+      {CITY_PLACES.map(place => <g key={place.id}><title>{place.name} · begehbar{visited.includes(place.id) ? ' · erkundet' : ''}</title><rect x={place.x - (place.hx??7.5)} y={place.z - (place.hz??7)} width={(place.hx??7.5)*2} height={(place.hz??7)*2} fill={visited.includes(place.id) ? '#637b62' : '#a1987d'} stroke="#5f6854" strokeWidth=".5" />{view.zoom>=4&&label(place.name.split(' · ')[0], place.x, place.z + 14 * markerScale)}</g>)}
+      {REGIONS.map((region, i) => <g key={region.name}><circle cx={region.x} cy={region.z} r={3 * markerScale} fill="#435c4b" />{view.zoom>=4&&label(`${i + 1} · ${region.name}`, region.x, region.z + 10 * markerScale)}</g>)}
       {SAFEHOUSES.map(h=><g key={h.id} transform={`translate(${h.x+9} ${h.z-9}) scale(${markerScale})`}><title>{h.name} · {houseProtected(houses[h.id])?'gesichert':'sicherbares Haus'}{respawn===h.id?' · Respawnpunkt':''}</title><path d="M-5 0L0-5 5 0V6H-5Z" fill={houseProtected(houses[h.id])?'#397d54':'#b28851'} stroke="#f4e8c6" strokeWidth=".7"/>{respawn===h.id&&<text x="0" y="4" textAnchor="middle" fontSize="6" fill="#fff">R</text>}</g>)}
       <g transform={`translate(${target.x} ${target.z}) scale(${markerScale})`}><title>Aktuelles Missionsziel</title><path d="M0-5L5 0 0 5-5 0Z" fill="#b97529" stroke="#fff5cf" strokeWidth="1" /><circle r="8" fill="none" stroke="#b97529" strokeWidth=".7" /></g>
       <g transform={`translate(${player.x} ${player.z}) scale(${markerScale})`}><title>Dein Standort</title><circle r="5" fill="#f9fbf0" stroke="#244f66" strokeWidth="1" /><circle r="2.5" fill="#246b88" /></g>
       <rect x={WORLD.minX + .5} y={WORLD.minZ + .5} width={width - 1} height={height - 1} fill="none" stroke="#7b8065" strokeWidth="1" />
     </svg><div className="map-compass" aria-label="Norden liegt oben">N<span>↑</span></div></div>
-    <footer className="map-caption"><span><i className="map-dot player" />Dein Standort</span><span><i className="map-dot target" />Missionsziel</span><span><i className="map-dot refuge" />Unterschlupf</span><span>⌂ Sicherbares Haus · Grün: gesichert · R: Respawn</span><span>Mausrad / + −: Zoom · Ziehen: Verschieben · Pos1: Ganze Karte</span></footer>
+    <footer className="map-caption"><span><i className="map-dot player" />Dein Standort</span><span><i className="map-dot target" />Missionsziel</span><span><i className="map-dot refuge" />Unterschlupf</span><span>2,4 × 2 km · Blau: Wasser · Braun: Feld-/Waldweg</span><span>Risiko: Grün 1–2 · Ocker 3 · Rot 4</span><span>⌂ Sicherbares Haus · Grün: gesichert · R: Respawn</span><span>Mausrad / + −: Zoom · Ziehen: Verschieben · Pos1: Ganze Karte</span></footer>
   </section>;
 }

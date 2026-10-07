@@ -1,6 +1,24 @@
 # Nachtwache — Tannwald
 
-Ein spielbarer Survival-FPS mit einer frei begehbaren Welt von 420 × 345 Metern, einer Hauptgeschichte und verbundenen Erkundungsaufträgen. Die Umgebung hat strukturierte, verwitterte Oberflächen, organische Vegetation und detaillierte Fahrzeuge. Three.js, React und die vorhandenen Kenney-Assets bleiben die Grundlage; die Figuren und Teile der ursprünglichen Architektur behalten ihre stilisierten Grundformen.
+Ein spielbarer Survival-FPS mit einer frei begehbaren Region von **2.400 × 2.000 Metern (4,8 km²)**, einer Hauptgeschichte und verbundenen Erkundungsaufträgen. Die ursprünglichen Missionsorte liegen weiterhin im Zentrum der Region. Eine erweiterte Oststadt, vier Landdörfer, Wälder, Landwirtschaft, Flüsse und abgelegene Anlagen machen daraus eine zusammenhängende Welt. Three.js, React und die vorhandenen Kenney-Assets bleiben die Grundlage.
+
+## Die neue Region
+
+Die Oststadt besitzt ein dichtes Zentrum mit acht 25–60 Meter hohen Türmen, Wohnblöcke mit durchsuchbaren Erdgeschossen, südliche Vororte und ein Industriegebiet am Nordzubringer. **Kornweiler** liegt zwischen Äckern und Höfen, **Fichtenau** am Forst, **Brückenfeld** an der Talstraße und **Aschenrode** am verlassenen Nordende. Die Häuser folgen den Zufahrten und örtlichen Straßen statt einem wiederholten Dorf-Raster.
+
+Der Fluss **Aue**, **Birkenbach** und **Hochbach** bilden ein geschwungenes Gewässersystem; Waldsee und Mühlenteich ergänzen es. Sechs aus Straßen-/Wasserkreuzungen abgeleitete Brücken sind begehbar. Tiefes Wasser sperrt den Weg für Spieler und Infizierte; Begleiter können die Brücken benutzen. Boden unter Brücken und begehbare Deckhöhe sind getrennt.
+
+**Fort Eiche** steht auf einer abgelegenen Anhöhe mit umzäuntem Hof, bewachbarer Zufahrt, fünf begehbaren Hallen, Wachtürmen, Containern und Helipad. Weitere Ziele sind Bauernhöfe, Jagdhütte, Campingplatz, Kirche, Tankstelle, Rasthof, Radarstation, Steinbruch, Umspannwerk und ein verlassenes Lazarus-Außenlabor. Die ruhigeren Zwischenräume bleiben bewusst unbebaut. Je nach Region gelten vier Risikostufen mit 12/22/32/40 aktiven Infizierten als Obergrenzen und unterschiedlicher Verstärkungsrate; militärische Orte erhalten häufiger Brecher und militärische Vorräte.
+
+122 zusätzliche Gebäude, rund 2.300 regional instanzierte Bäume und zusätzliche Vorratsfundorte erweitern die bisherigen Inhalte. Die alten 21 Innenräume, vier sicherbaren Häuser und die 24 Schritte der Hauptquest bleiben vorhanden. Maras Karte zeigt das ganze Straßennetz, Gewässer, Felder, Waldgebiete, Gebäude und wichtige Orte. Bis zu 2.400 % Zoom und „Mein Standort“ zeigen auch lokale Details.
+
+Die Planung ist in `app/regionPlan.ts` abgelegt, das Gelände in `app/regionTerrain.ts` und die abschnittsweise Darstellung/Kollision in `app/regionWorld.ts`. Erweiterung und Gestaltungsregeln stehen in [docs/world-design.md](docs/world-design.md).
+
+## Siedlungsdetails
+
+Stadt, Dörfer und Industriehöfe enthalten jetzt rund 1.400 zusätzliche Alltagsobjekte und 24 kleine Szenen: Caféterrassen, Haltestellen, Marktplatz, Spielbereich, Baustelle, Ladehof, Parkplatz und Evakuierungsorte. Straßenlaternen, Ampeln, Überwege, Bordsteine, Parkbuchten, unterschiedliche Fahrzeuge, Hauszugänge, Briefkästen, Hecken, Fahrräder und zurückgelassene Gegenstände verbinden die Gebäude mit ihrer Umgebung. Die Dörfer erhalten passende Landwirtschafts- und Forstdetails; Aschenrode zeigt einzelne Unfall- und Sperrstellen.
+
+Vorhandene Assets werden wiederverwendet. Instanzierte Komponenten in 80-Meter-Zellen und getrennte Sichtweiten begrenzen die Darstellung; die zusätzliche Straßenbeleuchtung verwendet das bestehende Lichtbudget und Lenz' Stromversorgung. `app/settlementPlan.ts` plant die Details, `app/settlementDetail.ts` stellt sie dar. Gestaltungsregeln und Prüfungen stehen in [docs/settlement-details.md](docs/settlement-details.md). `npm run check:settlements` prüft Stellflächen, Fahrbahnen, Türen, Vorräte, Modelldimensionen, Instancing und Culling.
 
 ## Starten
 
@@ -42,7 +60,7 @@ Der Pages-Build erzeugt die statische Website in `out/`, einschließlich aller M
 | 6 / 7 / 8 | Wasser / Antibiotika / Schutzweste |
 | M | Maras Weltkarte öffnen / schließen; pausiert |
 | J / Tab | Journal: Karte, Waffen, Vorräte, Aufgaben und Hinweise; pausiert |
-| Mausrad / + / − auf der Karte | Von der gesamten Welt bis zu 600 % zoomen |
+| Mausrad / + / − auf der Karte | Von der gesamten Welt bis zu 2.400 % zoomen |
 | Ziehen / Pfeiltasten auf der Karte | Kartenausschnitt verschieben; Pos1 zeigt die ganze Karte |
 
 ## Spielablauf
@@ -72,6 +90,10 @@ Die Nadelbäume haben dichte, unregelmäßige Fichtenkronen; Laubbäume rundlich
 Die Oststadt hat Gehwegplatten, Bordsteine, Zebrastreifen, Kanaldeckel, Pfützen, Bänke, Abfallbehälter, Schaltkästen und geformte Straßenleuchten. Die abgestellten Autos haben abgerundete Karosserien, separate Scheiben, Spiegel, Türen, Reifen, Felgen und Scheinwerfer. Drahtzäune mit Pfosten und Querstreben ersetzen die massiven Wände der bewachten Schutzbereiche; deren Spielkollision und Schutzfunktion bleiben erhalten. Bewölkung, Materialreflexionen, feinere Schatten und zusätzliche Kantenglättung ergänzen den Tag-/Nachtwechsel.
 
 Zusätzliche Details liegen in 40-Meter-Abschnitten und werden außerhalb von 105 Metern ausgeblendet. Baumteile, Fahrzeuge und Architektur werden nach Material zusammengefasst. Die Grafiküberarbeitung verändert weder die Missionsfolge noch die Loot-Mengen. Die vorhandenen Charaktermodelle bleiben stilisiert; diese Überarbeitung ist kein vollständiger Ersatz durch fotorealistische Figuren oder gescannte Architektur.
+
+Die Bäume teilen sich sechzehn Formvarianten pro Baumart und verwenden drei Entfernungsstufen: nahe Kronen behalten ihre vollständigen Zweige, entfernte Kronen brauchen weniger Geometrie. Übergangsbereiche verhindern ständige Stufenwechsel. Entferntes Laub entfällt im Schattenpass. Sonne und Mond teilen sich einen Schattenwerfer mit 1024-Pixel-Schattenkarte; Schatten werden in begrenzten Abständen und bei größeren Bewegungen aktualisiert. Vier feste GPU-Lichtplätze beleuchten die jeweils relevanten Feuer, Laternen und Leuchtfackeln. Innenraum-, Waffen- und Taschenlampenlicht bleiben zusätzlich verfügbar. Die Lichtanzahl bleibt bei Raumwechseln, Gesprächen und Leuchtfackeln konstant, sodass keine neuen Materialshader aufgrund einer anderen Lampenzahl entstehen.
+
+Die interne Auflösung ist auf etwa 1,6 Millionen Pixel begrenzt und wird bei anhaltender Last schrittweise abgesenkt. Bei ausreichender Leistung steigt sie langsam wieder an; einzelne Ruckler oder ein verborgenes Fenster verändern sie nicht. Kantenglättung erfolgt nach der Farbausgabe, der zusätzliche Bloom-Pass entfällt. Größenänderungen werden am Anfang eines Frames übernommen; ein kurzzeitig null Pixel großes Layout löscht die bestehenden Grafikpuffer nicht. Shader werden während des Ladens für den tatsächlichen Renderpfad vorbereitet. Nach einem WebGL-Kontextverlust werden alte GPU-Ressourcen freigegeben, Reflexionen und Shader neu aufgebaut und die Szene wieder gerendert. Gegner teilen sich vorbereitete Charaktergeometrie; pro Frame sind höchstens zwei neue Gegner-Wegberechnungen zugelassen. Neustarts und abgelaufene Leuchtfackeln geben ihre eigenen Ressourcen frei.
 
 Ein Durchlauf startet um 09:00 Uhr. Ein vollständiger Tag dauert 24 Spielminuten; Sonne, Mond, Himmelsfarben, Schatten und leichter Dunst wechseln fließend zwischen Tag, Dämmerung und Nacht. Pausen und Journal halten auch die Weltzeit an. Die Uhrzeit steht im HUD. Nachts leuchten die Unterschlüpfe, und nach Lenz’ Reparatur auch die festen Straßenlaternen.
 
@@ -105,6 +127,10 @@ Pistole (9 mm), Schrotflinte (12/70) und Karabiner (5.56 mm) haben eigene Magazi
 - `app/surfaces.ts`: elf deterministische Materialtypen mit Relief, Rauheit und Projektion in Weltkoordinaten.
 - `app/naturalAssets.ts`: verzweigte Bäume mit Blattgeometrie, geglättete Felsen, detaillierte Kisten/Fässer und abgerundete Fahrzeuge.
 - `app/worldDetail.ts`: Vegetation und Straßeninfrastruktur mit geprüften Abständen, Stamm-/Möbelkollision und Entfernungsausblendung.
+- `app/regionPlan.ts`: deterministische Regionen, verbundenes Straßennetz, Gewässer, Brücken, Parzellen, Felder, Waldmasken, POIs, Loot und räumlicher Index.
+- `app/regionTerrain.ts`: erhaltenes Missionsgelände, regionale Hügel, Flussbetten, Gebäudefundamente, Straßenprofile und Brückendecks.
+- `app/regionWorld.ts`: Geländeabschnitte, nach Material zusammengefasste Architektur, instanzierte Vegetation, nahe/mittlere/ferne Baumkronen und unabhängige Spielkollision.
+- `app/renderBudget.ts`: Renderauflösung, feste lokale Lichtplätze und abbrechbare Shader-Vorbereitung.
 - `app/world.ts`: ursprüngliche Orte, Briefe, Gegenstände und gemeinsame Deckungsprüfung.
 - `app/environment.ts`: Weltzeit, Tageslicht, Unterschlüpfe und Abstandsprüfung.
 
@@ -117,6 +143,8 @@ npm run check:environment
 npm run check:safehouses
 npm run check:interiors
 npm run check:graphics
+npm run check:rendering
+npm run check:region
 npm run build
 ```
 
@@ -132,6 +160,8 @@ npx --yes --package @playwright/cli playwright-cli -s=zombie run-code --filename
 npx --yes --package @playwright/cli playwright-cli -s=zombie run-code --filename scripts/browser-interiors.js
 npx --yes --package @playwright/cli playwright-cli -s=zombie run-code --filename scripts/browser-graphics.js
 npx --yes --package @playwright/cli playwright-cli -s=zombie run-code --filename scripts/browser-trees.js
+npx --yes --package @playwright/cli playwright-cli -s=zombie run-code --filename scripts/browser-performance.js
+npx --yes --package @playwright/cli playwright-cli -s=zombie run-code --filename scripts/browser-render-stability.js
 npx --yes --package @playwright/cli playwright-cli -s=zombie run-code --filename scripts/browser-story.js
 npx --yes --package @playwright/cli playwright-cli -s=zombie run-code --filename scripts/browser-defense.js
 npx --yes --package @playwright/cli playwright-cli -s=zombie run-code --filename scripts/browser-environment.js
@@ -139,7 +169,11 @@ npx --yes --package @playwright/cli playwright-cli -s=zombie run-code --filename
 
 Eine ausschließlich im Entwicklungsbuild verfügbare QA-Schnittstelle erlaubt Positionierung und Zustandsabfragen. Kampf, Gegenstände, Aufgaben, Navigation und Timer laufen durch die echten Spielsysteme. Der Verteidigungstest setzt den Storytest fort. Bildschirmaufnahmen liegen in `output/playwright/`.
 
-Statische Stadtteile sind nach Material zusammengefasst und werden nach Entfernung ausgeblendet. Maximal vierzig lebende Gegner sind zugelassen; entfernte KI pausiert und wird außerhalb von 110 Metern entfernt. Leichen werden nach kurzer Zeit freigegeben. Pfadsuchen sind begrenzt und zeitlich versetzt. Es gibt kein Festplatten-Streaming der Welt; Modelle werden weiterhin im Browser geladen.
+Der Performancevergleich misst RAF-Bildabstände in Millisekunden im selben 1920×1080-Fenster in Wald, Stadt, Wohnung und Nachtansicht. Jede Ansicht läuft vor der Messung fünf Sekunden, damit Texturuploads und adaptive Auflösung sich einpendeln. Er liefert Median, p95, Rendererprofil, Renderaufrufe, Dreiecke und die tatsächlich verwendete interne Auflösung. Diese Bildabstände enthalten die Bildschirmtaktung und sind keine isolierten GPU-Zeiten. Pixelprüfungen laufen außerhalb des Timingfensters. Der Stabilitätstest prüft Raumwechsel ohne zusätzliche Shaderprogramme, Größenänderungen, 30 reale Gegner, Speicherfreigabe beim Neustart und einen absichtlich ausgelösten WebGL-Kontextverlust. Hardware, Browser, Fenstergröße, Einlaufzeit und Hintergrundlast müssen bei Vergleichen gleich sein.
+
+Statische Stadtteile sind nach Material zusammengefasst und werden nach Entfernung ausgeblendet. Die Region benutzt 100-Meter-Abschnitte: Architektur bis etwa 235 Meter, bodennahe Vegetation bis 130 Meter, Bäume bis 220 Meter und Gelände/Landmarken bis 650 Meter. Baumvarianten teilen sich Geometrie und Materialien; die regionale Nahstufe benutzt die vorbereiteten mittleren Zweigkronen, damit dichte Bestände bezahlbar bleiben. Kollision und Wegsuche fragen einen räumlichen Index ab und bleiben auch außerhalb der sichtbaren Abschnitte wirksam. Bis zu vierzig lebende Gegner sind zugelassen; entfernte KI pausiert und wird außerhalb von 110 Metern entfernt. Es gibt kein Festplatten-Streaming: Die deterministische Region wird beim Laden einmal aufgebaut, entfernte Abschnitte werden ausgeblendet.
+
+`npm run check:region` kontrolliert Straßennetz-Verbindungen, sämtliche Zufahrten, Gebäudefundamente, Eingänge, Loot, Wasser-/Straßenabstände, alle Brückendecks, Begleiterwege, erhaltene Missionshöhen, räumliche Abfragen, gültige Geometrie und Instancing/Culling. `scripts/browser-region.js` prüft acht echte Spielsichten, Wasserblockierung, Bewegung über die Aue-Brücke, Maras Kartenübergabe, regionale Kartenebenen und Frame-Abstände. Mit laufendem Server: `npx --yes --package @playwright/cli playwright-cli -s=zombie run-code --filename scripts/browser-region.js`.
 
 ## Assets
 

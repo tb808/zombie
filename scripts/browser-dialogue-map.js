@@ -2,6 +2,7 @@
 async (page) => {
   const check = (value, message) => { if (!value) throw Error(message); };
   const state = () => page.evaluate(() => window.__nachtwache.state());
+  await page.goto('http://localhost:3000');
   await page.waitForFunction(() => window.__nachtwache && !document.querySelector('.title-card button')?.disabled);
   await page.getByRole('button', { name: 'MISSION STARTEN' }).click();
   await page.keyboard.press('m');
@@ -34,8 +35,10 @@ async (page) => {
   await page.keyboard.press('m');
   const map = page.locator('.map-viewport svg');
   await map.waitFor();
-  check(await map.getAttribute('viewBox') === '-180 -185 420 345', 'Overview covers all playable world bounds');
+  check(await map.getAttribute('viewBox') === '-1200 -1000 2400 2000', 'Overview covers all playable world bounds');
+  await page.getByRole('button', { name: 'Mein Standort' }).click();
   check(await map.locator('text').filter({ hasText: 'POLIZEI' }).count() === 1, 'Unvisited places are labelled');
+  await page.getByRole('button', { name: 'Ganze Karte', exact: true }).click();
   const beforeZoom = await map.getAttribute('viewBox');
   await page.getByRole('button', { name: 'Karte vergrößern' }).click();
   check(await map.getAttribute('viewBox') !== beforeZoom, 'Zoom button changes the view');

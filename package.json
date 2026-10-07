@@ -16,7 +16,10 @@
     "check:environment": "node --experimental-strip-types scripts/verify-environment.mjs",
     "check:safehouses": "node --experimental-strip-types scripts/verify-safehouses.mjs",
     "check:interiors": "node --experimental-strip-types scripts/verify-interiors.mjs",
-    "check:graphics": "node --experimental-strip-types scripts/verify-graphics.mjs"
+    "check:graphics": "node --experimental-strip-types scripts/verify-graphics.mjs",
+    "check:rendering": "node --experimental-strip-types scripts/verify-render-budget.mjs",
+    "check:region": "node --experimental-strip-types scripts/verify-region.mjs",
+    "check:settlements": "node --experimental-strip-types scripts/verify-settlements.mjs"
   },
   "dependencies": {
     "next": "16.2.6",

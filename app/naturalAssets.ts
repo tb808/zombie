@@ -4,6 +4,9 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { surfaceMaterial } from './surfaces.ts';
 
 export const foliageTime = { value: 0 };
+const treePrototypes = new Map<string, THREE.Group>();
+const foliageLevels = new WeakMap<THREE.BufferGeometry, THREE.BufferGeometry[]>();
+const trunkLevels = new WeakMap<THREE.BufferGeometry, THREE.BufferGeometry[]>();
 function randomSource(seed: number) { return () => { seed = Math.imul(seed ^ seed >>> 15, 1 | seed); seed ^= seed + Math.imul(seed ^ seed >>> 7, 61 | seed); return ((seed ^ seed >>> 14) >>> 0) / 4294967296; }; }
 const bark = surfaceMaterial('bark', 0xa7a093), stone = surfaceMaterial('stone', 0xb3b1a2);
 const timber = surfaceMaterial('wood', 0xb7a17c), darkMetal = surfaceMaterial('metal', 0x737d7c, { metalness: .65 });
@@ -87,7 +90,7 @@ const foliageMaterials = [false, true].map(needle => {
 function tree(pine: boolean, seed: number) {
   const group = new THREE.Group(), random = randomSource(seed), positions: number[] = [], normals: number[] = [], uvs: number[] = [], colors: number[] = [];
   const branch = (from: THREE.Vector3, to: THREE.Vector3, radius: number) => {
-    const direction = to.clone().sub(from), mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius * .4, radius, direction.length(), 12, 2), bark);
+    const direction = to.clone().sub(from), mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius * .4, radius, direction.length(), pine ? 6 : 10, 1), bark);
     mesh.position.copy(from).add(to).multiplyScalar(.5); mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize()); group.add(mesh);
   };
   const leaf = (point: THREE.Vector3, width: number, length: number, quaternion: THREE.Quaternion) => {
@@ -144,12 +147,70 @@ function tree(pine: boolean, seed: number) {
   canopy.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3)); canopy.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
   canopy.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2)); canopy.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
   const leaves = new THREE.Mesh(canopy, foliageMaterials[pine ? 1 : 0]); leaves.castShadow = leaves.receiveShadow = true; group.add(leaves);
+  foliageLevels.set(canopy, [canopy, thinTwigs(canopy, 2, 1.25), thinTwigs(canopy, 4, 1.6)]);
+  const trunk = group.children[0] as THREE.Mesh;
+  trunkLevels.set(trunk.geometry, [trunk.geometry, trunk.geometry, trunkGeometry]);
   group.userData.treeSpecies = pine ? 'spruce' : 'broadleaf';
   return group;
 }
 
+function thinTwigs(source: THREE.BufferGeometry, step: number, enlargement: number) {
+  const result = new THREE.BufferGeometry(), original = source.getAttribute('position'), cards = original.count / 12, count = Math.ceil(cards / step) * 12;
+  for (const name of ['position', 'normal', 'uv', 'color']) {
+    const attribute = source.getAttribute(name), values = new Float32Array(count * attribute.itemSize); let out = 0;
+    for (let card = 0; card < cards; card += step) {
+      const center = [0, 0, 0];
+      if (name === 'position') for (let vertex = 0; vertex < 12; vertex++) for (let axis = 0; axis < 3; axis++) center[axis] += attribute.array[(card * 12 + vertex) * 3 + axis] / 12;
+      for (let vertex = 0; vertex < 12; vertex++) for (let axis = 0; axis < attribute.itemSize; axis++) {
+        const value = attribute.array[(card * 12 + vertex) * attribute.itemSize + axis];
+        values[out++] = name === 'position' ? center[axis] + (value - center[axis]) * enlargement : value;
+      }
+    }
+    result.setAttribute(name, new THREE.BufferAttribute(values, attribute.itemSize));
+  }
+  result.computeBoundingSphere(); return result;
+}
+
+export function createTreeDetailController(scene: THREE.Scene) {
+  const records: { tree: THREE.Object3D; trunk: THREE.Mesh; leaves: THREE.Mesh; wood: THREE.BufferGeometry[]; foliage: THREE.BufferGeometry[]; position: THREE.Vector3; level: number }[] = [];
+  scene.updateMatrixWorld(true);
+  scene.traverse(tree => {
+    if (!tree.userData.treeSpecies) return;
+    const [trunk, leaves] = tree.children as THREE.Mesh[], foliage = foliageLevels.get(leaves.geometry), wood = trunkLevels.get(trunk.geometry);
+    if (foliage && wood) records.push({ tree, trunk, leaves, wood, foliage, position: tree.getWorldPosition(new THREE.Vector3()), level: 0 });
+  });
+  return {
+    count: records.length,
+    update(x: number, z: number) {
+      for (const r of records) {
+        const d2 = (r.position.x - x) ** 2 + (r.position.z - z) ** 2;
+        // Hysteresis avoids repeated swaps when walking along a threshold.
+        const near = r.level === 0 ? 30 : 26, far = r.level === 2 ? 57 : 63;
+        const level = d2 < near * near ? 0 : d2 < far * far ? 1 : 2;
+        if (level !== r.level) { r.trunk.geometry = r.wood[level]; r.leaves.geometry = r.foliage[level]; r.level = level; }
+        r.leaves.castShadow = d2 < 38 * 38; r.trunk.castShadow = d2 < 52 * 52;
+        r.tree.visible = d2 < 125 * 125;
+      }
+    },
+    levels: () => records.reduce((counts, r) => { counts[r.level]++; return counts; }, [0, 0, 0]),
+    dispose: () => { const geometries=new Set(records.flatMap(r=>[...r.wood,...r.foliage]));geometries.forEach(g=>g.dispose()); },
+  };
+}
+
+// Reuse the existing crown/trunk assets for regional InstancedMeshes, including
+// their prepared LOD geometries. No clone or geometry allocation per tree.
+export function instancedTreeParts(pine: boolean, variant: number) {
+  const tree = detailedAsset(pine ? 'pine' : 'suburban-tree-large', variant)!;
+  const [trunk, leaves] = tree.children as THREE.Mesh[];
+  return { trunk: trunkLevels.get(trunk.geometry)!, foliage: foliageLevels.get(leaves.geometry)!, bark: trunk.material, leaves: leaves.material };
+}
+
 export function detailedAsset(name: string, seed = 1): THREE.Group | null {
-  if (name.includes('tree') || name.startsWith('pine')) return tree(name.startsWith('pine'), seed);
+  if (name.includes('tree') || name.startsWith('pine')) {
+    const pine = name.startsWith('pine'), variant = (seed >>> 0) % 16, key = `${pine}-${variant}`;
+    if (!treePrototypes.has(key)) treePrototypes.set(key, tree(pine, variant + 1));
+    return treePrototypes.get(key)!.clone();
+  }
   const group = new THREE.Group();
   const add = (geometry: THREE.BufferGeometry, material: THREE.Material, x: number, y: number, z: number) => { const mesh = new THREE.Mesh(geometry, material); mesh.position.set(x, y, z); group.add(mesh); return mesh; };
   if (name.startsWith('rock') || name === 'rocks') {
