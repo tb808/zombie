@@ -16,7 +16,7 @@ async(page)=>{
   await page.evaluate(()=>{const g=window.__nachtwache;g.switchWeapon();g.teleport(-49,-36);g.aim(...g.state().trainingTarget);});
   await page.waitForFunction(()=>window.__nachtwache.state().shotCooldown<=0);
   await page.evaluate(()=>{const g=window.__nachtwache;g.shoot();g.switchWeapon();});await mission('fuel');
-  await at(-19,-4);await mission('flare');await at(8,5);
+  await at(-19,-4);await mission('returnFuel');await at(-53,-37);await mission('flare');await at(8,5);
   await page.evaluate(()=>window.__nachtwache.consume('flare'));await mission('noah');
   await page.evaluate(()=>window.__nachtwache.teleport(17,-2));
   for(let i=0;i<150;i++){
@@ -32,7 +32,7 @@ async(page)=>{
     },i);await page.waitForTimeout(250);
   }
   await at(17,15);await mission('planks');
-  await at(-81,15);await mission('house');await at(-77,17);await at(-74,7);
+  await at(-81,15);await mission('planks');await at(-77,17);await mission('house');await at(-74,7);
   for(const [x,z] of [[-81.6,-.7],[-72.4,-.7],[-81.6,10.7],[-72.4,10.7],[-77,-.7],[-77,10.7]])await at(x,z);
   await at(-77,6);await at(-77,6);
   await page.getByRole('button',{name:'UNTERSCHLUPF AKTIVIEREN',exact:true}).click();await mission('lamp');
@@ -40,12 +40,18 @@ async(page)=>{
   await page.getByRole('button',{name:'ZURÜCK INS SPIEL · ESC',exact:true}).click();
   await page.keyboard.press('f');await mission('sleep');await at(-77,6);
   await page.getByRole('button',{name:'BIS 06 UHR SCHLAFEN',exact:true}).click();await mission('weber');
-  await page.getByRole('button',{name:'ZURÜCK INS SPIEL · ESC',exact:true}).click();
+  const savedHouse=await state();
+  await page.evaluate(()=>window.__nachtwache.menu());await page.reload();
+  await page.waitForFunction(()=>window.__nachtwache&&!document.querySelector('.start-actions .secondary')?.disabled,{}, {timeout:90000});
+  await page.getByRole('button',{name:/^WEITERSPIELEN/}).click();await mission('weber');
+  const restoredHouse=await state();
+  check(restoredHouse.respawn==='lodge'&&JSON.stringify(restoredHouse.houses)===JSON.stringify(savedHouse.houses),'Saved shelter, barricades and respawn restore after reload');
+  check(JSON.stringify(restoredHouse.inventory)===JSON.stringify(savedHouse.inventory),'Construction resources are not regenerated');
   await at(-77,10.7); // Open the front door so Noah can follow.
   await at(114,-62);await mission('lenz');await at(120,85);await mission('fuse');
   await at(178,-23);await at(181,-18);await mission('power');await at(120,90);await mission('shotgun');
-  await at(181,-70);await at(181,-74);await mission('archive');
-  await at(184,-136);await at(120,-132);await at(120,-136);await mission('serum');
+  await at(181,-70);await at(181,-74);await mission('keycard');
+  await at(184,-136);await mission('archive');await at(120,-132);await at(120,-136);await mission('serum');
   await at(48,23);await mission('repair');await at(57,20);await at(60,-25);await at(71,-24);
   await page.evaluate(()=>{const g=window.__nachtwache;g.teleport(66,-25);g.consume('scrap');});await mission('tower');
   for(let i=0;i<180;i++){
@@ -60,5 +66,5 @@ async(page)=>{
   const result=await state();await page.evaluate(()=>window.__nachtwache.pause());
   check(result.repaired&&result.houses.lodge.claimed&&result.respawn==='lodge','Tutorial state survives the complete route');
   await page.screenshot({path:'output/playwright/campaign-final-defense.png'});
-  return {stage:result.stage,mission:result.mission,timer:result.timer,noah:result.noah,health:result.health,passed:['all 24 campaign steps','aimed target','reload completion','axe practice','flare tutorial','Noah rescue','first shelter','lamp','first night','Weber','power','armory','archive','serum','tower repair','escort']};
+  return {stage:result.stage,mission:result.mission,timer:result.timer,noah:result.noah,health:result.health,passed:['all 26 connected campaign steps','aimed target','reload completion','axe practice','flare tutorial','Noah rescue','first shelter','lamp','first night','Weber','power','armory','archive','serum','tower repair','escort']};
 }

@@ -3,7 +3,7 @@ async (page) => {
   const errors=[],onError=e=>errors.push(e.message),onConsole=m=>{if(m.type()==='error')errors.push(m.text());};
   page.on('pageerror',onError);page.on('console',onConsole);
   await page.goto('http://localhost:3000');
-  await page.waitForFunction(()=>window.__nachtwache&&!document.querySelector('.title-card button')?.disabled,{}, {timeout:90000});
+  await page.waitForFunction(()=>window.__nachtwache&&!document.querySelector('.start-actions .secondary')?.disabled,{}, {timeout:90000});
   const check=(v,m)=>{if(!v)throw Error(m);};
   const world=await page.evaluate(()=>window.__nachtwache.world());
   const profile=await page.evaluate(()=>{const gl=document.querySelector('.game-canvas').getContext('webgl2'),ext=gl.getExtension('WEBGL_debug_renderer_info');return {viewport:[innerWidth,innerHeight],renderer:ext?gl.getParameter(ext.UNMASKED_RENDERER_WEBGL):gl.getParameter(gl.RENDERER),userAgent:navigator.userAgent};});

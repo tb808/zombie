@@ -1,0 +1,41 @@
+/* eslint-disable @typescript-eslint/no-unused-expressions -- Playwright CLI invokes this function with its page argument. */
+async(page)=>{
+  const check=(ok,message)=>{if(!ok)throw Error(message);};
+  const ready=()=>page.waitForFunction(()=>window.__nachtwache&&!document.querySelector('.start-actions .secondary')?.disabled,{}, {timeout:90000});
+  const state=()=>page.evaluate(()=>window.__nachtwache.state());
+  await ready();
+  await page.getByRole('button',{name:/^NEUES SPIEL/}).click();
+  await page.evaluate(()=>{const g=window.__nachtwache;g.resume();g.teleport(-53,-37);g.interact();g.nextDialogue();g.nextDialogue();g.menu();});
+  const original=await page.evaluate(()=>JSON.parse(localStorage.getItem('nachtwache.save.v1')));
+  check(original.conversation.index===2&&original.progress.stage===0,'Quest waits for the complete conversation');
+  await page.screenshot({path:'output/playwright/story-start-menu.png'});
+  await page.reload();await ready();
+  await page.getByRole('button',{name:/^WEITERSPIELEN/}).click();
+  check((await state()).dialogue?.index===2,'Continue restores exact subtitle');
+  await page.evaluate(()=>{const g=window.__nachtwache;g.resume();while(g.state().dialogue)g.nextDialogue();g.pause();});
+  check((await state()).mission==='map'&&(await state()).hasMap,'Restored dialogue grants map and advances once');
+  await page.evaluate(()=>{const g=window.__nachtwache;g.resume();g.teleport(-60,-36);g.interact();g.hurt(20);g.consume('medkit');g.shoot();g.reload();g.menu();});
+  const before=await page.evaluate(()=>JSON.parse(localStorage.getItem('nachtwache.save.v1')));
+  check(before.reloadLeft>0&&before.loot.some(p=>p.remaining===0),'Save contains interrupted reload and consumed loot');
+  await page.reload();await ready();await page.getByRole('button',{name:/^WEITERSPIELEN/}).click();
+  await page.evaluate(()=>window.__nachtwache.pause());
+  const after=await state();
+  check(after.mission===before.mission&&after.arsenal.pistol.ammo===before.progress.arsenal.pistol.ammo&&after.arsenal.pistol.reserve===before.progress.arsenal.pistol.reserve,'Quest and ammo restore');
+  check(JSON.stringify(after.inventory)===JSON.stringify(before.progress.inventory),'Inventory restores exactly');
+  check(after.enemies.filter(e=>e.alive).length===before.enemies.length,'Existing enemies restore without extra quest spawns');
+  check(after.reloading,'Reload animation resumes');
+  await page.evaluate(()=>window.__nachtwache.resume());
+  await page.waitForFunction(()=>!window.__nachtwache.state().reloading);
+  const loaded=await state();check(loaded.arsenal.pistol.ammo===12&&loaded.arsenal.pistol.reserve===before.progress.arsenal.pistol.reserve-1,'Interrupted reload consumes exactly one reserve round');
+  await page.evaluate(()=>{const g=window.__nachtwache;g.teleport(-60,-36);g.interact();g.menu();});
+  check((await state()).inventory.medkit===after.inventory.medkit,'Reloading cannot regenerate collected supply');
+  await page.evaluate(()=>localStorage.setItem('nachtwache.save.v1','{broken'));
+  await page.reload();await ready();
+  check(await page.getByRole('button',{name:/^WEITERSPIELEN/}).isDisabled(),'Damaged save disables Continue');
+  check(await page.getByText(/Dieser Spielstand ist beschädigt/).isVisible(),'Readable recovery message');
+  await page.getByRole('button',{name:/^NEUES SPIEL/}).click();
+  await page.evaluate(()=>{const g=window.__nachtwache;g.pause();g.save();});
+  const fresh=await state();check(fresh.mission==='intro'&&!fresh.hasMap&&fresh.respawn===null&&fresh.health===100,'New game starts fresh');
+  check(await page.evaluate(()=>JSON.parse(localStorage.getItem('nachtwache.save.v1')).mission)==='intro','New game replaces the old save');
+  return {passed:['new/continue menu','save across real page reload','exact subtitle and deferred quest completion','inventory','ammo','interrupted reload','enemy population','no loot duplication','damaged save recovery','new game reset']};
+}

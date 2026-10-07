@@ -3,8 +3,8 @@ async (page) => {
   const check = (value, message) => { if (!value) throw Error(message); };
   const state = () => page.evaluate(() => window.__nachtwache.state());
   await page.goto('http://localhost:3000');
-  await page.waitForFunction(() => window.__nachtwache && !document.querySelector('.title-card button')?.disabled);
-  await page.getByRole('button', { name: 'MISSION STARTEN' }).click();
+  await page.waitForFunction(() => window.__nachtwache && !document.querySelector('.start-actions .secondary')?.disabled);
+  await page.getByRole('button', { name: 'NEUES SPIEL' }).click();
   await page.keyboard.press('m');
   await page.getByText('Die Karte hat Mara.', { exact: true }).waitFor();
   check(!(await state()).hasMap, 'No map before speaking to Mara');

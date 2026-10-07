@@ -4,7 +4,7 @@ async (page) => {
   const errors=[],onError=e=>errors.push(e.message),onConsole=msg=>{if(msg.type()==='error')errors.push(msg.text());};
   page.on('pageerror',onError);page.on('console',onConsole);
   await page.setViewportSize({width:1920,height:1080});await page.goto('http://localhost:3000');
-  await page.waitForFunction(()=>window.__nachtwache&&!document.querySelector('.title-card button')?.disabled,{},{timeout:60000});
+  await page.waitForFunction(()=>window.__nachtwache&&!document.querySelector('.start-actions .secondary')?.disabled,{},{timeout:60000});
   const result=await page.evaluate(async()=>{
     const check=(ok,message)=>{if(!ok)throw Error(message);},g=window.__nachtwache,canvas=document.querySelector('.game-canvas'),gl=canvas.getContext('webgl2');
     const frame=()=>new Promise(resolve=>requestAnimationFrame(resolve));

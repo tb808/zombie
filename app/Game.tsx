@@ -21,7 +21,8 @@ import WorldMap from './WorldMap';
 import { MARA_INTRO, subtitleLines, type Dialogue } from './dialogue';
 import { assetPath } from './assetPath';
 import { daylightAt, REFUGES, refugeAt, refugeWalls, footprintsOverlap } from './environment';
-import { CAMPAIGN, missionIndex } from './campaign';
+import { CAMPAIGN, CHAPTERS, STORY_GOAL, missionIndex, type CampaignId } from './campaign';
+import { SAVE_KEY, lootKey, parseSave, pickProgress, type GameSave } from './saveGame';
 import { SAFEHOUSES, HOUSE_LOOT, newHouses, houseReady, houseProtected, houseContains, canSleep, nextHour } from './safehouses';
 import { detailMaterial, surfaceMaterial, releaseSurfaceTextures } from './surfaces';
 import { detailedAsset, foliageTime, createTreeDetailController } from './naturalAssets';
@@ -31,6 +32,8 @@ import { buildRegionWorld, regionalCollision } from './regionWorld';
 import { REGION_LOOT, REGION_POIS, REGION_SIGNS, ROAD_LINES, BRIDGES, STRUCTURES, WORLD_ZONES, inLegacy, riskAt, zoneAt } from './regionPlan';
 import { terrainHeight } from './regionTerrain';
 import { buildSettlementDetail } from './settlementDetail';
+import { nightThreat, roamingZombie, uvScheduled, uvProtectedAt } from './nightSurvival';
+import { buildSafehouseEntrances } from './safehouseScene';
 const WORLD_LOOT: {kind:LootKind;x:number;z:number;count:number;y?:number}[] = [...LOOT,...CITY_LOOT,...HOUSE_LOOT,...REGION_LOOT];
 const EXPLORABLE_IDS = [...CITY_PLACES,...REGION_POIS,...WORLD_ZONES].map(p=>p.id);
 
@@ -85,9 +88,10 @@ const OBJECTIVES = CAMPAIGN.map(m => ({ ...m, target: new THREE.Vector3(m.x, 0, 
 const DEFENSE = missionIndex('defend'), RESCUE = missionIndex('noah'), TOWER = missionIndex('tower');
 
 const STORY = {
-  fuel: ['ELIAS', 'Zelle gesichert. Auf dem Notkanal ist eine Stimme – sie kommt vom alten Friedhof.'],
-  noah: ['NOAH', 'Dr. Falk hat das Virus freigesetzt. Ich komme mit dir. Zuerst brauchen wir einen sicheren Platz für die Nacht. Das Forsthaus am Dorfrand hat vier offene Fenster und zwei Türen. Sammle Bretter und Ersatzteile. Danach suchen wir Dr. Weber in der Oststadt.'],
-  serum: ['DR. FALK · AUFZEICHNUNG', 'Projekt Lazarus war kein Heilmittel. Es war ein Schlüssel. Wenn Sie das hören, bin ich bereits Teil der nächsten Stufe.'],
+  fuel: ['ELIAS', ['Die Brennstoffzelle ist unbeschädigt. Damit bekommt Mara das Funkgerät wieder an.','Ich bringe sie zur Station zurück. Erst dann können wir den Konvoi erreichen.']],
+  returnFuel: ['MARA', ['Die Zelle passt. Der Generator läuft – ich schalte den Notkanal ein.','Da ist ein Hilferuf vom Friedhof. Noah steckt am Mausoleum fest. Er hat mit Dr. Weber gearbeitet und weiß, wo sie ist.','Lenke seine Verfolger mit einer Fackel ab und hol ihn raus. Ich bleibe am Funkgerät und halte den Kontakt zum Konvoi.']],
+  noah: ['NOAH', ['Du bist wegen Maras Funkspruch hier? Danke. Weber hat eine stabile Dosis gesichert; sie ist jetzt in der Notaufnahme der Oststadt.','Sie erwartet uns erst im Morgengrauen. Ich bin erschöpft, und nachts werden die Infizierten schneller. Wir brauchen vorher einen Rückzugsort.','Das Forsthaus am Dorfrand hat Baumaterial. Vernageln wir seine vier Fenster, verstärken beide Türen und richten das Bett mit einer Ration her.','Aktiviere den Schlafplatz als Unterschlupf und Respawnpunkt. Dann läuft dort nachts UV-Licht. Wir schließen die Haustüren und ruhen, bis Weber uns erwartet.']],
+  serum: ['DR. WEBER · FUNK', ['C-07. Das ist der Behälter aus meinem Lagerprotokoll. Die Dosis ist stabil – lass ihn versiegelt.','Jetzt habt ihr, wofür wir gearbeitet haben. Bringt Noah und den Behälter zum Funkturm. Mara führt den Konvoi zu euch.','Der Sender verliert Leistung. Mit drei Ersatzteilen von der Klinik und dem Turm verstärkst du das Signal, bevor ihr den Notruf startet.']],
   tower: ['MARA · FUNK', 'Sender läuft. Der Konvoi braucht vierzig Sekunden – und jedes Ding in Tannwald kennt jetzt unsere Position.'],
 } as const;
 
@@ -101,7 +105,7 @@ const LOCATIONS = [
 
 export default function Game() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const apiRef = useRef<{ start: () => void; resume: () => void; journal: () => void; nextDialogue: () => void; respawn: () => void; shelter: (action: 'claim' | 'respawn' | 'wait' | 'sleep') => void } | null>(null);
+  const apiRef = useRef<{ start: () => void; continue: () => void; menu: () => void; resume: () => void; journal: () => void; nextDialogue: () => void; respawn: () => void; shelter: (action: 'claim' | 'respawn' | 'wait' | 'sleep') => void } | null>(null);
   const [mapBuildings, setMapBuildings] = useState<{ x: number; z: number; hx: number; hz: number }[]>([]);
   const [screen, setScreen] = useState<Screen>('title');
   const [hud, setHud] = useState<Hud>(INITIAL_HUD);
@@ -113,6 +117,8 @@ export default function Game() {
   const [dialogue, setDialogue] = useState<Dialogue | null>(null);
   const [location, setLocation] = useState<{ name: string; subtitle: string } | null>(null);
   const [selectedHouse, setSelectedHouse] = useState<string | null>(null);
+  const [savedGame, setSavedGame] = useState<GameSave|null>(null);
+  const [saveError, setSaveError] = useState('');
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -476,7 +482,8 @@ export default function Game() {
       paintedBoard(`${refuge.name.toUpperCase()} / GESICHERTER UNTERSCHLUPF`,refuge.x+4,refuge.z+refuge.hz+1,'#cde4c1');
       const light = new THREE.PointLight(0xffd8a1,0,22,2); light.position.set(refuge.x,terrainHeight(refuge.x,refuge.z+refuge.hz)+3.2,refuge.z+refuge.hz-2); scene.add(light); refugeLights.push(light);
     }
-    const localLightSources=[redBeacon,...flickerLights,...streetLights,...refugeLights];
+    const safehouseEntrances=buildSafehouseEntrances(scene,terrainHeight,obstacles);
+    const localLightSources=[redBeacon,...flickerLights,...streetLights,...refugeLights,...safehouseEntrances.gates.map(g=>g.light)];
     localLightSources.forEach(light=>scene.remove(light));
     const localLightPool=makeLocalLightPool(scene);
     // Forest perimeter and an old road lead to the rural shelters.
@@ -611,13 +618,17 @@ export default function Game() {
     const freshRuntime = () => ({ ...INITIAL_HUD, houses:newHouses(),learned:[] as string[],inventory: newInventory(), arsenal: freshArsenal(), evidence: [] as string[], visited: [] as string[], discovered: [] as number[], active: false, spawn: 12, hudTick: 0, invulnerable: 0, reloadLeft: 0, locationName: '', noticeTime: 0, elapsed: 0, ambientTime: 8, shotCooldown: 0, eventTime: 42, eventNumber: 0 });
     let runtime = freshRuntime();
     let journalOpen = false;
-    let conversation: (Dialogue & { onComplete?: () => void }) | null = null;
+    let conversation: (Dialogue & { complete:CampaignId|null }) | null = null;
+    let started=false, lastSaveAt=0;
     let shelterId: string | null = null;
     const protectedHouseAt = (x:number,z:number,margin=0) => SAFEHOUSES.find(h => houseProtected(runtime.houses[h.id]) && houseContains(h,x,z,margin));
-    const protectedAt = (x:number,z:number,margin=0) => refugeAt(x,z,margin) || protectedHouseAt(x,z,margin);
+    const protectedAt = (x:number,z:number,margin=0) => uvProtectedAt(runtime.elapsed,runtime.houses,x,z,margin);
+    let uvWasScheduled=uvScheduled(runtime.elapsed);
     const syncCampaign = () => {
       const completed = (id:string) => {
         if(id==='house')return runtime.houses.lodge.claimed;
+        if(id==='keycard')return runtime.keycard;
+        if(id==='planks')return runtime.learned.includes('planks')||runtime.houses.lodge.claimed;
         if(id==='lenz')return runtime.powerQuest>=1;
         if(id==='fuse')return runtime.powerQuest>=2 && (runtime.inventory.scrap>=2||runtime.powerQuest===3);
         if(id==='power')return runtime.powerQuest===3;
@@ -630,7 +641,12 @@ export default function Game() {
       while(runtime.stage<DEFENSE && completed(OBJECTIVES[runtime.stage].id))runtime.stage++;
       if(before!==runtime.stage){moveObjectiveMarker(runtime.stage);notify(`Neuer Auftrag · ${OBJECTIVES[runtime.stage].title}`);}
     };
-    const learn = (id:string) => { if(!runtime.learned.includes(id))runtime.learned.push(id);syncCampaign(); };
+    const learn = (id:string) => {
+      // Tutorial actions belong to the current scene, so an unrelated earlier
+      // action cannot silently skip the explanation when this scene is reached.
+      if(['map','water','aim','reload','axe','flare','lamp','sleep','weber'].includes(id)&&OBJECTIVES[runtime.stage].id!==id)return;
+      if(!runtime.learned.includes(id))runtime.learned.push(id);syncCampaign();
+    };
 
     const noises: Stimulus[] = [];
     let triggerHeld = false;
@@ -640,7 +656,7 @@ export default function Game() {
       const absorbed = Math.min(runtime.protection,damage*.55); runtime.protection -= absorbed; runtime.infection = Math.min(100,runtime.infection+3);
       runtime.health = Math.max(0, runtime.health - damage + absorbed); runtime.invulnerable = .28; runtime.damageFlash = .5;
       tone(48, .2, 'sawtooth', .045);
-      if (runtime.health <= 0) { runtime.active = false; snapshotHud(); document.exitPointerLock?.(); setDialogue(null); conversation = null; setScreen('dead'); }
+      if (runtime.health <= 0) { runtime.active = false; setDialogue(null); conversation = null; snapshotHud();saveGame(true); document.exitPointerLock?.();setScreen('dead'); }
     };
     const flares: { object: THREE.Group; life: number }[] = [];
     const releaseFlare=(object:THREE.Group)=>{
@@ -653,12 +669,12 @@ export default function Game() {
     };
     const pathBetween = (a:Point,b:Point,radius=.48) => findPath(a,b,actorObstacles(a,b),radius);
     const visibleFrom = (a: THREE.Vector3, b: THREE.Vector3) => !segmentBlocked(a.x, a.z, b.x, b.z, actorObstacles(a,b,0,true));
-    const snapshotHud = () => setHud({ ...runtime, houses:structuredClone(runtime.houses),learned:[...runtime.learned],inventory: { ...runtime.inventory }, discovered: [...runtime.discovered], health: Math.ceil(runtime.health), stamina: Math.round(runtime.stamina), timer: Math.ceil(runtime.timer), x: camera.position.x, z: camera.position.z });
+    const snapshotHud = () => {setHud({ ...runtime, houses:structuredClone(runtime.houses),learned:[...runtime.learned],inventory: { ...runtime.inventory }, discovered: [...runtime.discovered], health: Math.ceil(runtime.health), stamina: Math.round(runtime.stamina), timer: Math.ceil(runtime.timer), x: camera.position.x, z: camera.position.z });saveGame();};
     const openJournal = (note?: number) => {
       if (conversation) return;
       if(runtime.hasMap)learn('map');
       setMapBuildings(mapFootprints.map(building => ({ ...building })));
-      runtime.active = false; journalOpen = true; keys.clear(); triggerHeld = false; runtime.aiming = false; snapshotHud();
+      runtime.active = false; journalOpen = true; keys.clear(); triggerHeld = false; runtime.aiming = false; snapshotHud();saveGame(true);
       if (note !== undefined) { setSelectedNote(note); setJournalTab('notes'); } else setJournalTab(runtime.hasMap ? 'map' : 'inventory');
       setScreen('journal'); document.exitPointerLock?.();
     };
@@ -678,8 +694,8 @@ export default function Game() {
       gain.gain.setValueAtTime(volume/(1+distance*.12),audio.currentTime);gain.gain.exponentialRampToValueAtTime(.001,audio.currentTime+duration);
       source.connect(filter).connect(gain).connect(pan).connect(audio.destination);source.start(0,Math.random());source.stop(audio.currentTime+duration);
     };
-    const say = (entry: readonly [string, string | readonly string[]], onComplete?: () => void) => {
-      conversation = { speaker: entry[0], lines: subtitleLines(entry[1]), index: 0, onComplete };
+    const say = (entry: readonly [string, string | readonly string[]], complete:CampaignId|null=null) => {
+      conversation = { speaker: entry[0], lines: subtitleLines(entry[1]), index: 0, complete };
       keys.clear(); triggerHeld = false; runtime.aiming = false; setLocation(null);
       const speaker = entry[0] === 'MARA' ? npcAnchors.mara : entry[0] === 'NOAH' ? npcAnchors.noah : cityNpcs.find(npc => npc.name === entry[0])?.anchor;
       if (speaker) {
@@ -691,6 +707,7 @@ export default function Game() {
       }
       setDialogue({ speaker: conversation.speaker, lines: conversation.lines, index: 0 });
       tone(180, 0.08, 'sine', 0.015);
+      saveGame(true);
     };
     const nextDialogue = () => {
       if (!conversation || !runtime.active || journalOpen) return;
@@ -698,22 +715,24 @@ export default function Game() {
         conversation.index++;
         setDialogue({ speaker: conversation.speaker, lines: conversation.lines, index: conversation.index });
       } else {
-        const onComplete = conversation.onComplete;
+        const complete = conversation.complete;
         conversation = null; setDialogue(null); keys.clear(); triggerHeld = false;
-        onComplete?.(); snapshotHud();
+        if(complete)completeStory(complete);snapshotHud();
       }
+      saveGame(true);
     };
 
-    const spawnEnemy = (x?: number, z?: number, tougher = false, requestedKind?: ZombieKind) => {
+    const spawnEnemy = (x?: number, z?: number, tougher = false, requestedKind?: ZombieKind, restoring=false) => {
       const risk=riskAt(camera.position.x,camera.position.z);
-      const cap=x!==undefined||runtime.stage===DEFENSE?40:[12,22,32,40][risk];
+      const danger=nightThreat(runtime.elapsed);
+      const cap=x!==undefined||runtime.stage===DEFENSE?40:Math.min(40,[12,22,32,40][risk]+Math.round(danger.strength*8));
       if (enemies.filter(e => e.alive).length >= cap) return;
       const angle = Math.random() * Math.PI * 2, distance = 30 + Math.random() * 16;
       const spawnX = THREE.MathUtils.clamp(x ?? camera.position.x + Math.cos(angle) * distance, WORLD.minX + 2, WORLD.maxX - 2);
       const spawnZ = THREE.MathUtils.clamp(z ?? camera.position.z + Math.sin(angle) * distance, WORLD.minZ + 2, WORLD.maxZ - 2);
-      if (collides(spawnX, spawnZ) || protectedAt(spawnX,spawnZ,2) || (x === undefined && visibleFrom(camera.position, new THREE.Vector3(spawnX, 0, spawnZ)))) return;
+      if (!restoring&&(collides(spawnX, spawnZ) || protectedAt(spawnX,spawnZ,2) || (x === undefined && visibleFrom(camera.position, new THREE.Vector3(spawnX, 0, spawnZ))))) return;
       const roll = Math.random();
-      const kind: ZombieKind = requestedKind ?? (tougher || risk===3&&roll>.7 ? 'tank' : roll < (risk>=2?.23:.12) ? 'runner' : roll < .27 ? 'crawler' : roll < .4 ? 'infected' : 'walker');
+      const kind: ZombieKind = requestedKind ?? roamingZombie(runtime.elapsed,risk,roll,tougher);
       const spec = ZOMBIES[kind], scale = spec.scale;
       const group = new THREE.Group(); group.position.set(spawnX, terrainHeight(spawnX, spawnZ), spawnZ); scene.add(group);
       const visual = new THREE.Group(); group.add(visual);
@@ -803,23 +822,24 @@ export default function Game() {
     };
 
     const nearEnemy = (position: THREE.Vector3, radius: number) => enemies.some((enemy) => enemy.alive && horizontalDistance(enemy.group.position, position) < radius);
+    const completeStory = (id:CampaignId) => {
+      if(OBJECTIVES[runtime.stage].id!==id)return;
+      if(id==='intro'){runtime.hasMap=true;learn(id);notify('Karte erhalten · [M] Tannwald & Umgebung');spawnPack(-24,-2,5);}
+      else if(id==='fuel'){fuelCell.visible=false;learn(id);}
+      else if(id==='returnFuel'){npcAnchors.noah.visible=true;learn(id);spawnPack(15,17,7);}
+      else if(id==='serum'){serum.visible=false;learn(id);spawnPack(62,-20,7);}
+      else if(id==='tower'){runtime.timer=runtime.repaired?30:40;learn(id);spawnPack(66,-25,10);}
+      else learn(id);
+    };
     const advanceStory = () => {
       if (!runtime.active) return;
       const {target,id} = OBJECTIVES[runtime.stage];
       if (horizontalDistance(camera.position, target) > 3.2) return;
       if (id === 'noah' && nearEnemy(target, 8)) { notify('Sichere zuerst den Bereich um Noah'); return; }
       if (id === 'tower' && horizontalDistance(npcAnchors.noah.position,target)>12) { notify('Noah muss den Sender erreichen · sichere seinen Weg');return; }
-      if (id === 'intro') {
-        say(['MARA', MARA_INTRO], () => {
-          runtime.hasMap = true; learn('intro');
-          notify('Karte erhalten · [M] Tannwald & Umgebung');
-          spawnPack(-24, -2, 5);
-        });
-      }
-      else if (id === 'fuel') { fuelCell.visible = false; npcAnchors.noah.visible = true; learn('fuel');say(STORY.fuel); spawnPack(15, 17, 7); }
-      else if (id === 'noah') { learn('noah');say(STORY.noah); }
-      else if (id === 'serum') { serum.visible = false;learn('serum');say(STORY.serum);spawnPack(62, -20, 7); }
-      else if (id === 'tower') { runtime.timer = runtime.repaired ? 30 : 40;learn('tower');say(runtime.repaired ? ['MARA · FUNK', 'Das verstärkte Signal kommt durch! Der Konvoi braucht nur dreißig Sekunden. Bleibt am Sender!'] : STORY.tower); spawnPack(66, -25, 10); }
+      if(id==='intro')say(['MARA',MARA_INTRO],id);
+      else if(id==='fuel'||id==='returnFuel'||id==='noah'||id==='serum')say(STORY[id],id);
+      else if(id==='tower')say(runtime.repaired?['MARA · FUNK','Das verstärkte Signal kommt durch! Der Konvoi holt euch mit der Dosis ab. Bleibt dreißig Sekunden am Sender und schützt Noah!']:STORY.tower,id);
       else notify(OBJECTIVES[runtime.stage].detail);
     };
 
@@ -852,11 +872,19 @@ export default function Game() {
         if(h.id==='lodge'&&runtime.respawn==='lodge')learn('sleep');
         notify('06:00 Uhr · ausgeruht. Vor dem Aufbruch trinken und Türen öffnen.');
       }
-      snapshotHud();
+      snapshotHud();saveGame(true);
     };
     type Interaction = { x:number;z:number;label:string;run:()=>void; touch?:boolean };
     const nearestCityInteraction = (): Interaction | undefined => {
       const candidates: Interaction[] = [];
+      for(const gate of safehouseEntrances.gates)candidates.push({x:gate.x+2.4,z:gate.z,label:`${gate.name} · TOR ${gate.open?'SCHLIESSEN':'ÖFFNEN'}`,touch:true,run:()=>{
+        const inSwing=(p:Point)=>p.x>gate.x-2.65&&p.x<gate.x+2.65&&p.z>gate.z-.7&&p.z<gate.z+4.7;
+        const occupied=inSwing(camera.position)||npcAnchors.noah.visible&&inSwing(npcAnchors.noah.position)||cityNpcs.some(n=>inSwing(n.anchor.position))||enemies.some(e=>e.alive&&inSwing(e.group.position));
+        if(occupied){notify('Schwenkbereich freihalten · tritt seitlich oder weiter vom Tor zurück.');return;}
+        safehouseEntrances.setGate(gate.id,!gate.open);
+        enemies.forEach(e=>{e.path=[];e.pathTime=0;});noahPath=[];noahPathTime=0;
+        notify(gate.open?'Tor geöffnet':'Tor geschlossen');snapshotHud();
+      }});
       for(const f of city.fortifications){
         const h=runtime.houses[f.house];
         if(f.kind==='window'&&h.windows[f.index])continue;
@@ -875,7 +903,7 @@ export default function Game() {
             }
             h.closed[f.index]=!h.closed[f.index];city.setFortification(f.house,'door',f.index,h.closed[f.index]);
             enemies.forEach(e=>{e.path=[];e.pathTime=0;});noahPath=[];noahPathTime=0;
-            notify(h.closed[f.index]?'Verstärkte Tür geschlossen':'Tür offen · Unterschlupf ist ungeschützt');
+            notify(h.closed[f.index]?'Verstärkte Tür geschlossen':protectedAt(f.x,f.z)?'Tür offen · UV-Schutz bleibt aktiv':'Tür offen · UV-Schutz ist aus');
           }else if(!h.bed){
             if(!runtime.inventory.ration){notify('Eine Ration für den Schlafplatz fehlt.');return;}
             runtime.inventory.ration--;h.bed=true;city.setFortification(f.house,'bed',0,true);notify('Bett vorbereitet · E öffnet die Unterschlupfverwaltung');
@@ -885,12 +913,12 @@ export default function Game() {
       }
       for(const npc of cityNpcs)candidates.push({x:npc.x,z:npc.z,label:`MIT ${npc.name} SPRECHEN`,run:()=>{
         if(npc.id==='lenz') {
-          if(runtime.powerQuest===0){runtime.powerQuest=1;say([npc.name,'Die Oststadt ist ohne Strom. In meiner Werkstatt liegt eine Sicherung. Bring sie und zwei Ersatzteile zum Generator hier. Dann öffne ich dir die Waffenkammer.']);}
+          if(runtime.powerQuest===0){runtime.powerQuest=1;say([npc.name,['Weber hat euch geschickt? Die elektrische Archivtür hängt an meinem Generator. Ohne Strom kommt ihr nicht an ihr Protokoll.','In meiner Werkstatt liegt die Ersatzsicherung. Bring sie und zwei Ersatzteile für die Verkabelung hierher. Dann bekommt ihr auch meinen Polizeischlüssel, damit ihr Noah schützen könnt.']]);}
           else if(runtime.powerQuest<3)say([npc.name,runtime.powerQuest===1?'Die Werkstatt steht südlich der Polizei, an der Ringstraße. Eine Sicherung und zwei Ersatzteile reichen.':'Die Sicherung passt. Setz sie am Generator neben mir ein. Zwei Ersatzteile für die Verkabelung fehlen noch.']);
           else say([npc.name,'Die Notbeleuchtung läuft. Der Polizeischlüssel gehört dir. In der Waffenkammer liegt eine Jagdflinte. Verlass dich nicht auf das Licht: Der Generator ist laut.']);
         } else if(npc.id==='weber') {
-          if(!runtime.learned.includes('weber')){
-            say([npc.name,['Das Gegenmittel liegt in der alten Klinik. Sichere zuerst den Abbruchbefehl im Lazarus-Archiv: Lenz muss den Strom herstellen; die Keycard liegt am Kontrollpunkt Nord.','Mit 1 behandelst du Wunden, mit 7 eine Infektion und mit 8 ziehst du eine Schutzweste an. Medizin findest du in der Notaufnahme.','Ich suche außerdem Ben Voss. Die Patientenliste im Behandlungsraum zeigt seinen letzten Weg.']],()=>learn('weber'));return;
+          if(OBJECTIVES[runtime.stage].id==='weber'){
+            say([npc.name,['Noah! Gut, dass ihr die Nacht überstanden habt. Eine stabile Dosis kann den Überlebenden helfen. In der alten Klinik liegen auch unbrauchbare Proben: Wir brauchen die Behälterkennung aus meinem Lagerprotokoll.','Das Original liegt im Lazarus-Archiv. Seine elektrische Tür braucht Strom. Lenz im Schulhof repariert den Generator; danach holt ihr meine blaue Keycard am Kontrollpunkt Nord.','Für die Rückkehr durch die Klinik gebe ich euch einen Rat: Verbände mit 1 gegen Wunden, Antibiotika mit 7 gegen Infektion, eine Weste mit 8 gegen Bisse. Vorräte liegen in der Notaufnahme.','Lest das Protokoll, bergt genau die dort genannte Dosis und bringt sie mit Noah zum Konvoi. Ich halte die Notaufnahme für die Verletzten offen.']], 'weber');return;
           }
           if(runtime.benQuest>=3 && runtime.benQuest<4){runtime.benQuest=4;runtime.health=100;runtime.infection=0;runtime.inventory.medkit=Math.min(ITEMS.medkit.limit,runtime.inventory.medkit+2);say([npc.name,'Ben lebt? Dann war es nicht umsonst. Ich versorge deine Wunden. Diese Verbände sind für euch. Im Lazarus-Archiv liegt noch der Beweis gegen Falk.']);}
           else if(runtime.evidence.includes('archive'))say([npc.name,'Falk hat den Abbruchbefehl unterschrieben. Mit diesem Original kann er die Wahrheit nicht länger verschweigen. Bring es mit dem Gegenmittel zum Konvoi.']);
@@ -911,7 +939,7 @@ export default function Game() {
           if(runtime.powerQuest===3){say(['LENZ','Das Licht bleibt an. Der Schlüssel passt zur Polizei.']);return;}
           if(runtime.powerQuest<2){notify('Sicherung aus der Werkstatt benötigt');return;}
           if(runtime.inventory.scrap<2){notify('Zwei Ersatzteile fehlen · Werkstatt durchsuchen');return;}
-          runtime.inventory.scrap-=2;runtime.powerQuest=3;emitNoise(p,72,'alarm',12);spawnPack(141,100,5);notify('Strom wiederhergestellt · Polizeischlüssel erhalten');say(['LENZ','Gut gemacht! Die Beleuchtung läuft. Nimm meinen Polizeischlüssel. Die Wachen halten den Eingang, aber draußen haben sie uns gehört.']);
+          runtime.inventory.scrap-=2;runtime.powerQuest=3;emitNoise(p,72,'alarm',12);spawnPack(141,100,5);notify('Strom wiederhergestellt · Polizeischlüssel erhalten');say(['LENZ',['Das Archiv hat wieder Strom. Der Generator ist laut – geh in Deckung, wenn sie kommen. Die Wachen halten unseren Eingang.','Hier ist der Polizeischlüssel. Hole die Jagdflinte aus der Waffenkammer, dann Webers Keycard am Kontrollpunkt Nord. Mit beiden könnt ihr sicher ins Archiv und weiter zur Dosis.']]);
         }});
         if((p.id==='shotgun'||p.id==='rifle')&&!runtime.arsenal[p.id].owned)candidates.push({x:p.x,z:p.z,label:`${WEAPONS[p.id].name.toUpperCase()} MITNEHMEN`,run:()=>{const kind=p.id as 'shotgun'|'rifle';runtime.arsenal[kind].owned=true;runtime.arsenal[kind].ammo=WEAPONS[kind].magazine;runtime.arsenal[kind].reserve+=kind==='shotgun'?12:30;p.object.visible=false;notify(`${WEAPONS[kind].name} gefunden · [Q] wechseln`);}});
         if(p.id==='keycard'&&!runtime.keycard)candidates.push({x:p.x,z:p.z,label:'LAZARUS-KEYCARD MITNEHMEN',run:()=>{runtime.keycard=true;p.object.visible=false;notify('Lazarus-Keycard gesichert');}});
@@ -931,11 +959,12 @@ export default function Game() {
       if (item) {
         const name = lootName(item.kind);
         if (item.kind === 'ammo' || item.kind === 'shells' || item.kind === 'rifleAmmo') { runtime.arsenal[item.kind==='ammo'?'pistol':item.kind==='shells'?'shotgun':'rifle'].reserve += item.count; syncAmmo(); }
-        else { const room = ITEMS[item.kind].limit - runtime.inventory[item.kind]; if (room <= 0) { notify(`${name}: Inventar voll`); return; } const amount = Math.min(room, item.count); runtime.inventory[item.kind] += amount; item.count -= amount;learn('supplies');if(item.kind==='planks')learn('planks'); if (item.count > 0) { notify(`${name} +${amount} · Rest bleibt liegen`);snapshotHud();return; } }
+        else { const room = ITEMS[item.kind].limit - runtime.inventory[item.kind]; if (room <= 0) { notify(`${name}: Inventar voll`); return; } const amount = Math.min(room, item.count); runtime.inventory[item.kind] += amount; item.count -= amount;if(item.kind==='medkit')learn('supplies');if(runtime.inventory.planks>=8&&runtime.inventory.scrap>=2)learn('planks'); if (item.count > 0) { notify(`${name} +${amount} · Rest bleibt liegen`);snapshotHud();return; } }
         item.taken = true; item.object.visible = false;syncCampaign();snapshotHud();notify(`${name} eingesammelt`); tone(420, 0.12, 'sine'); return;
       }
       const note = nearestNote();
       if (note >= 0) { if (!runtime.discovered.includes(note)) runtime.discovered.push(note); openJournal(note); return; }
+      if(['intro','fuel','returnFuel','noah','serum','tower'].includes(OBJECTIVES[runtime.stage].id)&&horizontalDistance(camera.position,OBJECTIVES[runtime.stage].target)<3.2){advanceStory();return;}
       const cityInteraction=nearestCityInteraction();if(cityInteraction){cityInteraction.run();syncCampaign();snapshotHud();return;}
       advanceStory();
     };
@@ -958,14 +987,43 @@ export default function Game() {
       if (kind === 'flare') {
         const object = new THREE.Group(); const direction = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw)); object.position.copy(camera.position);
         for (let step = 0; step < 20; step++) { const next = object.position.clone().addScaledVector(direction, 0.5); if (collides(next.x, next.z)) break; object.position.copy(next); }
-        object.position.y = terrainHeight(object.position.x, object.position.z) + 0.3;
-        object.userData.sourceLight=new THREE.PointLight(0xff582c,35,20,2);
-        object.add(new THREE.Mesh(new THREE.IcosahedronGeometry(0.18), new THREE.MeshBasicMaterial({ color: 0xffb75c }))); scene.add(object); flares.push({ object, life: 12 });
+        createFlare(object.position.x,object.position.z);
       }
       runtime.inventory[kind]--;if(kind==='water')learn('water');if(kind==='flare'&&horizontalDistance(camera.position,OBJECTIVES[RESCUE].target)<25)learn('flare');syncCampaign();notify(kind === 'scrap' ? 'Sender verstärkt · Konvoi 10 s früher' : `${ITEMS[kind].name} verwendet`); tone(520, 0.12, 'sine'); snapshotHud();
     };
 
-    const resetGame = () => {
+    const saveManifest={loot:WORLD_LOOT.map((p,i)=>({key:lootKey(p.kind,p.x,p.z,i),count:p.count})),doors:city.doors.map(d=>d.id),gates:safehouseEntrances.gates.map(g=>g.id)};
+    const readSave = () => {
+      try{
+        const raw=localStorage.getItem(SAVE_KEY),saved=parseSave(raw,saveManifest);
+        setSavedGame(saved);setSaveError(raw&&!saved?'Dieser Spielstand ist beschädigt oder passt nicht zur aktuellen Spielwelt. Du kannst ein neues Spiel starten.':'');
+        return saved;
+      }catch{setSavedGame(null);setSaveError('Der Browser erlaubt keinen Zugriff auf den Spielstand.');return null;}
+    };
+    const saveGame = (force=false) => {
+      if(!started||disposed||!force&&performance.now()-lastSaveAt<3000)return;
+      const saved:GameSave={
+        version:1,savedAt:Date.now(),mission:OBJECTIVES[runtime.stage].id,
+        phase:runtime.health<=0?'dead':runtime.stage===DEFENSE&&runtime.timer<=0?'won':'playing',
+        progress:structuredClone(pickProgress(runtime)),player:{x:camera.position.x,z:camera.position.z,yaw,pitch},
+        noah:{x:npcAnchors.noah.position.x,z:npcAnchors.noah.position.z},
+        loot:pickups.map((p,i)=>({key:saveManifest.loot[i].key,remaining:p.taken?0:p.count})),
+        doors:city.doors.filter(d=>d.open).map(d=>d.id),gates:safehouseEntrances.gates.filter(g=>g.open).map(g=>g.id),
+        enemies:enemies.filter(e=>e.alive).map(e=>({kind:e.kind,health:e.health,x:e.group.position.x,z:e.group.position.z,yaw:e.group.rotation.y,brain:structuredClone(e.brain)})),
+        flares:flares.map(f=>({x:f.object.position.x,z:f.object.position.z,life:f.life})),noises:structuredClone(noises),
+        conversation:conversation?structuredClone(conversation):null,flashlight:flashlight.intensity>0,
+        reloadLeft:Math.max(0,runtime.reloadLeft),shotCooldown:runtime.shotCooldown,invulnerable:runtime.invulnerable,
+      };
+      try{localStorage.setItem(SAVE_KEY,JSON.stringify(saved));lastSaveAt=performance.now();setSavedGame(saved);setSaveError('');}
+      catch{setSaveError('Der Spielstand konnte nicht gespeichert werden. Prüfe den freien Browserspeicher.');}
+    };
+    const createFlare = (x:number,z:number,life=12) => {
+      const object=new THREE.Group();object.position.set(x,terrainHeight(x,z)+.3,z);
+      object.userData.sourceLight=new THREE.PointLight(0xff582c,35,20,2);
+      object.add(new THREE.Mesh(new THREE.IcosahedronGeometry(.18),new THREE.MeshBasicMaterial({color:0xffb75c})));
+      scene.add(object);flares.push({object,life});
+    };
+    const resetGame = (saved?:GameSave) => {
       conversation = null; setDialogue(null);
       generation++; keys.clear(); city.reset(); noises.length = 0; triggerHeld = false; journalOpen = false; noahMoving = false;
       shelterId=null;setSelectedHouse(null);city.fortifications.forEach(f=>city.setFortification(f.house,f.kind,f.index,false));
@@ -979,9 +1037,35 @@ export default function Game() {
       fuelCell.visible = true; serum.visible = true; npcAnchors.noah.visible = false;
       pickups.forEach((item, i) => { item.taken = false; item.object.visible = true; item.count = WORLD_LOOT[i].count; });
       runtime = freshRuntime(); runtime.active = true; updateWeaponModel();
+      safehouseEntrances.reset();uvWasScheduled=uvScheduled(runtime.elapsed);
       questProps.forEach(p=>p.object.visible=true);cityNpcs.forEach(n=>n.anchor.position.set(n.x,terrainHeight(n.x,n.z),n.z));
-      moveObjectiveMarker(0); setHud(INITIAL_HUD); setScreen('playing'); setLocation(null); notify('Mara wartet am Feuer · [E] mit ihr sprechen');
-      audio ??= new AudioContext(); audio.resume(); canvas.requestPointerLock?.()?.catch(() => undefined);
+      if(saved){
+        runtime={...freshRuntime(),...structuredClone(pickProgress(saved.progress)),active:saved.phase==='playing',reloadLeft:saved.reloadLeft,reloading:saved.reloadLeft>0,shotCooldown:saved.shotCooldown,invulnerable:saved.invulnerable};
+        camera.position.set(saved.player.x,terrainHeight(saved.player.x,saved.player.z)+1.72,saved.player.z);
+        yaw=saved.player.yaw;pitch=saved.player.pitch;camera.rotation.set(pitch,yaw,0);
+        npcAnchors.noah.position.set(saved.noah.x,terrainHeight(saved.noah.x,saved.noah.z),saved.noah.z);
+        npcAnchors.noah.visible=runtime.learned.includes('returnFuel');
+        for(const h of SAFEHOUSES){const state=runtime.houses[h.id];state.windows.forEach((closed,i)=>city.setFortification(h.id,'window',i,closed));state.closed.forEach((closed,i)=>city.setFortification(h.id,'door',i,closed));city.setFortification(h.id,'bed',0,state.bed);}
+        saved.doors.forEach(id=>city.openDoor(id));saved.gates.forEach(id=>safehouseEntrances.setGate(id,true));
+        const remaining=new Map(saved.loot.map(p=>[p.key,p.remaining]));
+        pickups.forEach((p,i)=>{p.count=remaining.get(saveManifest.loot[i].key)!;p.taken=p.count===0;p.object.visible=!p.taken;});
+        fuelCell.visible=!runtime.learned.includes('fuel');serum.visible=!runtime.learned.includes('serum');
+        questProps.forEach(p=>{p.object.visible=p.id==='fuse'?runtime.powerQuest<2:p.id==='keycard'?!runtime.keycard:p.id==='shotgun'||p.id==='rifle'?!runtime.arsenal[p.id].owned:true;});
+        for(const e of saved.enemies){const before=enemies.length;spawnEnemy(e.x,e.z,false,e.kind,true);if(enemies.length>before){const restored=enemies[enemies.length-1];restored.health=e.health;restored.brain=structuredClone(e.brain);restored.group.rotation.y=e.yaw;}}
+        saved.flares.forEach(f=>createFlare(f.x,f.z,f.life));noises.push(...structuredClone(saved.noises));
+        flashlight.intensity=saved.flashlight&&runtime.battery>0?32:0;
+        conversation=saved.conversation?structuredClone(saved.conversation):null;
+        if(conversation)setDialogue({speaker:conversation.speaker,lines:[...conversation.lines],index:conversation.index});
+        syncAmmo();updateWeaponModel();uvWasScheduled=uvScheduled(runtime.elapsed);
+      }
+      started=true;moveObjectiveMarker(runtime.stage);snapshotHud();saveGame(true);setScreen(saved?.phase??'playing');setLocation(null);
+      notify(saved?'Spielstand geladen · dein nächster Auftrag steht oben.':'Mara wartet am Feuer · [E] mit ihr sprechen');
+      if(runtime.active){audio??=new AudioContext();audio.resume();canvas.requestPointerLock?.()?.catch(()=>undefined);}
+    };
+    const continueGame = () => {const saved=readSave();if(saved)resetGame(saved);};
+    const returnToMenu = () => {
+      saveGame(true);started=false;runtime.active=false;keys.clear();triggerHeld=false;runtime.aiming=false;
+      journalOpen=false;shelterId=null;setSelectedHouse(null);setDialogue(null);setScreen('title');document.exitPointerLock?.();
     };
     const respawnPlayer = () => {
       if(runtime.health>0||!runtime.respawn)return;
@@ -995,20 +1079,24 @@ export default function Game() {
       if(runtime.stage===DEFENSE)runtime.timer=runtime.repaired?30:40;
       noahPath=[];noahPathTime=0;noises.length=0;flashlight.intensity=0;resumeGame();snapshotHud();notify(`${h.name} · zurück am Respawnpunkt. Quest und Ausrüstung bleiben erhalten.`);
     };
-    apiRef.current = { start: resetGame, resume: resumeGame, journal: () => openJournal(), nextDialogue,respawn:respawnPlayer,shelter:shelterAction };
+    apiRef.current = { start:()=>resetGame(),continue:continueGame,menu:returnToMenu,resume: resumeGame, journal: () => openJournal(), nextDialogue,respawn:respawnPlayer,shelter:shelterAction };
+    readSave();
+    const onLeave = () => saveGame(true);
+    const onVisibility = () => {if(document.hidden)saveGame(true);};
+    addEventListener('pagehide',onLeave);addEventListener('beforeunload',onLeave);document.addEventListener('visibilitychange',onVisibility);
 
     // Development-only QA surface: exercise actual interaction/combat functions
     // and inspect live renderer counters without shipping cheats in production.
     if (process.env.NODE_ENV !== 'production') Object.assign(window, { __nachtwache: {
       state: () => ({ ...runtime,mission:OBJECTIVES[runtime.stage].id,protectedHouse:protectedHouseAt(camera.position.x,camera.position.z)?.id,trainingTarget:trainingTarget.position.toArray(),dialogue: conversation ? { speaker: conversation.speaker, lines: [...conversation.lines], index: conversation.index } : null, inventory:{...runtime.inventory},arsenal:structuredClone(runtime.arsenal),position:camera.position.toArray(),noah:npcAnchors.noah.position.toArray(),enemies:enemies.map(e=>({kind:e.kind,state:e.brain.state,health:e.health,x:e.group.position.x,z:e.group.position.z,y:e.group.position.y,head:e.head.getWorldPosition(new THREE.Vector3()).toArray(),visible:visibleFrom(camera.position,e.group.position),alive:e.alive})),render:{calls:renderer.info.render.calls,triangles:renderer.info.render.triangles},doors:city.doors.map(d=>({id:d.id,open:d.open})) }),
       teleport: (x:number,z:number,direction=0) => {if(collides(x,z))throw Error('QA destination is blocked');camera.position.set(x,terrainHeight(x,z)+1.72,z);yaw=direction;pitch=0;camera.rotation.set(pitch,yaw,0);},
-      interact, shoot, reload:reloadWeapon, switchWeapon, start:resetGame, nextDialogue,consume:consumeItem,respawn:respawnPlayer,shelter:shelterAction,
+      interact, shoot, reload:reloadWeapon, switchWeapon, start:()=>resetGame(),continue:continueGame,menu:returnToMenu,save:()=>saveGame(true),nextDialogue,consume:consumeItem,respawn:respawnPlayer,shelter:shelterAction,
       setAiming:(aiming:boolean)=>{runtime.aiming=aiming;},hurt:hurtPlayer,
       spawn: (x:number,z:number,kind:ZombieKind) => { const before=enemies.length;spawnEnemy(x,z,false,kind);if(enemies.length>before)transition(enemies[enemies.length-1].brain,'idle',2); },
       aim: (x:number,y:number,z:number) => {const dx=x-camera.position.x,dz=z-camera.position.z; yaw=Math.atan2(-dx,-dz);pitch=Math.atan2(y-camera.position.y,Math.hypot(dx,dz));camera.rotation.set(pitch,yaw,0);},
       pause:()=>{runtime.active=false;triggerHeld=false;}, resume:()=>{runtime.active=true;},
       setTime: (hours:number) => { runtime.elapsed=((hours-9+24)%24)*60; snapshotHud(); },
-      environment: () => ({ ...daylightAt(runtime.elapsed), refuge:refugeAt(camera.position.x,camera.position.z)?.id, sun:daylightAt(runtime.elapsed).sunIntensity, moon:daylightAt(runtime.elapsed).moonIntensity, fog:scene.fog instanceof THREE.FogExp2?scene.fog.density:0, npcs:cityNpcs.map(n=>({id:n.id,x:n.x,z:n.z})), placements:placements.filter(p=>p.anchor.parent).length,detail:worldDetail?.stats }),
+      environment: () => ({ ...daylightAt(runtime.elapsed), threat:nightThreat(runtime.elapsed), uvProtected:protectedAt(camera.position.x,camera.position.z)?.id, gates:safehouseEntrances.gates.map(g=>({id:g.id,x:g.x,z:g.z,open:g.open,uv:g.uv,lamps:g.tubes.some(t=>t.visible)})), refuge:refugeAt(camera.position.x,camera.position.z)?.id, sun:daylightAt(runtime.elapsed).sunIntensity, moon:daylightAt(runtime.elapsed).moonIntensity, fog:scene.fog instanceof THREE.FogExp2?scene.fog.density:0, npcs:cityNpcs.map(n=>({id:n.id,x:n.x,z:n.z})), placements:placements.filter(p=>p.anchor.parent).length,detail:worldDetail?.stats }),
       performance: () => ({frameAverageMs:resolutionBudget.averageMs,resolutionScale:resolutionBudget.scale,pixelRatio:renderer.getPixelRatio(),buffer:[canvas.width,canvas.height],trees:treeDetail?.levels(),localLights:localLightPool.slots.length,programs:renderer.info.programs?.length,geometries:renderer.info.memory.geometries,textures:renderer.info.memory.textures,contextLosses,contextLost,frames:renderedFrames}),
       world: () => ({bounds:WORLD,...regionWorld.stats(),zones:WORLD_ZONES,pois:REGION_POIS,bridges:BRIDGES,structures:STRUCTURES,roads:ROAD_LINES,risk:riskAt(camera.position.x,camera.position.z),dressing:settlementDetail?.stats(),dressingScenes:settlementDetail?.plan.scenes,dressingProps:settlementDetail?.plan.props,dressingBounds:settlementDetail?.bounds}),
       blocked: (x:number,z:number) => collides(x,z), height:terrainHeight,
@@ -1061,7 +1149,7 @@ export default function Game() {
       if (event.code === 'KeyQ' && !event.repeat) switchWeapon();
       if (event.code === 'KeyF' && !event.repeat) {flashlight.intensity = flashlight.intensity > 0 ? 0 : runtime.battery > 0 ? 32 : 0;if(flashlight.intensity>0)learn('lamp');}
       const slot = Number(event.code.replace('Digit', '')) - 1; const kind = (Object.keys(ITEMS) as ItemKind[])[slot]; if (kind && !event.repeat) consumeItem(kind);
-      if (event.code === 'Escape' && !event.repeat && runtime.active) { runtime.active = false; keys.clear(); document.exitPointerLock?.(); setScreen('paused'); }
+      if (event.code === 'Escape' && !event.repeat && runtime.active) { runtime.active = false; keys.clear();saveGame(true); document.exitPointerLock?.(); setScreen('paused'); }
     };
     const onKeyUp = (event: KeyboardEvent) => keys.delete(event.code);
     const onMouseMove = (event: MouseEvent) => {
@@ -1078,9 +1166,9 @@ export default function Game() {
     const onContext = (event: Event) => event.preventDefault();
     addEventListener('mouseup', onMouseUp); canvas.addEventListener('contextmenu', onContext);
     const onPointerLock = () => {
-      if (document.pointerLockElement !== canvas && runtime.active) { runtime.active = false; keys.clear(); setScreen('paused'); }
+      if (document.pointerLockElement !== canvas && runtime.active) { runtime.active = false; keys.clear();saveGame(true); setScreen('paused'); }
     };
-    const onBlur = () => { keys.clear(); triggerHeld = false; runtime.aiming = false; if (runtime.active) { runtime.active = false; setScreen('paused'); document.exitPointerLock?.(); } };
+    const onBlur = () => { keys.clear(); triggerHeld = false; runtime.aiming = false;saveGame(true); if (runtime.active) { runtime.active = false; setScreen('paused'); document.exitPointerLock?.(); } };
     addEventListener('blur', onBlur);
     let pendingResize=true,contextLost=false,contextLosses=0,renderedFrames=0,shadowElapsed=1;
     const shadowPosition=new THREE.Vector3(Infinity,0,Infinity);
@@ -1174,7 +1262,7 @@ export default function Game() {
     const dayHorizon = new THREE.Color(0xbad5e6), duskHorizon = new THREE.Color(0xf0b68b);
     const dayZenith = new THREE.Color(0x4b9cdb), daySky = new THREE.Color(0xcce6ff), dayGround = new THREE.Color(0x827762), daySun = new THREE.Color(0xfff2da);
     const sunDirection = new THREE.Vector3();
-    const updateEnvironment = () => {
+    const updateEnvironment = (dt:number) => {
       const light = daylightAt(runtime.elapsed);
       skyMaterial.uniforms.cloudTime.value=runtime.elapsed;foliageTime.value=runtime.elapsed;
       horizon.setHex(0x18253e).lerp(dayHorizon,light.daylight).lerp(duskHorizon,light.twilight*.7);
@@ -1196,7 +1284,8 @@ export default function Game() {
       moon.position.copy(camera.position).addScaledVector(direction,-160); moon.visible=light.elevation<.02;
       sky.position.copy(camera.position); stars.position.copy(camera.position); stars.material.opacity=light.night*.7;
       mist.forEach(sprite=>{sprite.material.opacity=.015+light.night*.035;});
-      refugeLights.forEach(lamp=>{lamp.intensity=light.night*24;});
+      safehouseEntrances.update(runtime.elapsed,runtime.houses,dt,camera.position);
+      refugeLights.forEach(lamp=>{lamp.intensity=uvScheduled(runtime.elapsed)?8:0;});
       streetLights.forEach(lamp=>{lamp.intensity=runtime.powerQuest===3?light.night*24:0;});
       const sources=[...localLightSources,...(settlementDetail?.lighting(light.night,runtime.powerQuest===3,camera.position)??[])];
       for(const flare of flares){const source=flare.object.userData.sourceLight as THREE.PointLight;source.position.copy(flare.object.position);sources.push(source);}
@@ -1229,6 +1318,9 @@ export default function Game() {
 
       if (runtime.active && !conversation) {
         runtime.elapsed += dt;
+        const uvOn=uvScheduled(runtime.elapsed);
+        if(uvOn!==uvWasScheduled){uvWasScheduled=uvOn;notify(uvOn?'Dämmerung · gesicherte Safehouses schalten UV ein. Draußen werden die Infizierten gefährlicher.':'Morgen · UV-Lampen ausgeschaltet. Tore vor dem Aufbruch prüfen.');runtime.spawn=Math.min(runtime.spawn,5);}
+        const danger=nightThreat(runtime.elapsed);
         sky.position.copy(camera.position);
         const nearestInterior=CITY_PLACES.find(p=>Math.abs(camera.position.x-p.x)<(p.hx??7.5)&&Math.abs(camera.position.z-p.z)<(p.hz??7));
         interiorLight.intensity=0;rearInteriorLight.intensity=0;
@@ -1298,7 +1390,7 @@ export default function Game() {
         }
 
         if (runtime.stage > 0) runtime.spawn -= dt;
-        if (runtime.spawn <= 0) {const risk=riskAt(camera.position.x,camera.position.z);spawnEnemy(undefined, undefined, Math.random() < [0,.06,.12,.3][risk]); runtime.spawn = runtime.stage === DEFENSE ? 1.4 + Math.random() : [30,15,8,3.5][risk]+Math.random()*5; }
+        if (runtime.spawn <= 0) {const risk=riskAt(camera.position.x,camera.position.z);spawnEnemy(undefined, undefined, Math.random() < [0,.06,.12,.3][risk]); runtime.spawn = runtime.stage === DEFENSE ? 1.4 + Math.random() : ([30,15,8,3.5][risk]+Math.random()*5)*danger.spawnInterval; }
         if (runtime.learned.includes('noah')) {
           const followX = camera.position.x + Math.sin(yaw) * 2.4, followZ = camera.position.z + Math.cos(yaw) * 2.4;
           const followTarget = new THREE.Vector3(followX, terrainHeight(followX, followZ), followZ);
@@ -1324,9 +1416,13 @@ export default function Game() {
           enemy.group.visible = distance < 105;
           if(distance>110){enemy.alive=false;enemy.deathTime=0;for(const box of [enemy.hitbox,enemy.head]){const n=enemyHitboxes.indexOf(box);if(n>=0)enemyHitboxes.splice(n,1);}continue;}
           if(distance>95)continue;
+          if(protectedAt(enemy.group.position.x,enemy.group.position.z)){
+            enemy.health-=40*dt;if(enemy.health<=0){killEnemy(enemy,false);continue;}
+            transition(enemy.brain,'recover',.4);
+          }
           const lureNoises: Stimulus[] = flares.map(f=>({x:f.object.position.x,z:f.object.position.z,radius:23,life:f.life,kind:'flare'}));
-          const result = think(enemy.brain,enemy.kind,enemy.group.position,camera.position,enemy.group.rotation.y,actorObstacles(enemy.group.position,camera.position,2,true),[...noises,...lureNoises],dt);
-          if(result.strike&&!protectedAt(camera.position.x,camera.position.z))hurtPlayer(ZOMBIES[enemy.kind].damage);
+          const result = think(enemy.brain,enemy.kind,enemy.group.position,camera.position,enemy.group.rotation.y,actorObstacles(enemy.group.position,camera.position,2,true),[...noises,...lureNoises],dt,danger.sight);
+          if(result.strike&&!protectedAt(camera.position.x,camera.position.z))hurtPlayer(ZOMBIES[enemy.kind].damage*danger.damage);
           const beforeX=enemy.group.position.x,beforeZ=enemy.group.position.z;
           enemy.pathTime-=dt;
           if(result.speed>0) {
@@ -1340,7 +1436,7 @@ export default function Game() {
             if(waypoint) {
               const targetPoint=new THREE.Vector3(waypoint.x,0,waypoint.z);
               if(enemy.kind==='infected'&&enemy.brain.state==='chase'){targetPoint.x+=Math.sin(runtime.elapsed*4+enemy.phase)*.7;}
-              moveActor(enemy.group.position,targetPoint,result.speed,dt,true);
+              moveActor(enemy.group.position,targetPoint,result.speed*danger.speed,dt,true);
               // Local separation is applied through the same collision controller.
               const separation=new THREE.Vector3();
               for(const other of enemies){if(other===enemy||!other.alive)continue;const dx=enemy.group.position.x-other.group.position.x,dz=enemy.group.position.z-other.group.position.z,d=Math.hypot(dx,dz);if(d<1.05&&d>.001){separation.x+=dx/d*(1.05-d);separation.z+=dz/d*(1.05-d);}}
@@ -1365,7 +1461,7 @@ export default function Game() {
         });
 
         syncCampaign();
-        if (runtime.active && runtime.stage === DEFENSE && horizontalDistance(camera.position, OBJECTIVES[DEFENSE].target) < 18) { runtime.timer = Math.max(0, runtime.timer - dt); if (runtime.timer <= 0) { runtime.active = false; snapshotHud(); document.exitPointerLock?.(); setDialogue(null); conversation = null; setScreen('won'); } }
+        if (runtime.active && runtime.stage === DEFENSE && horizontalDistance(camera.position, OBJECTIVES[DEFENSE].target) < 18) { runtime.timer = Math.max(0, runtime.timer - dt); if (runtime.timer <= 0) { runtime.active = false; setDialogue(null); conversation = null; snapshotHud();saveGame(true); document.exitPointerLock?.();setScreen('won'); } }
         const objective = OBJECTIVES[runtime.stage]; const distance = horizontalDistance(camera.position, objective.target); runtime.distance = Math.round(distance);
         runtime.prompt = distance < 3.2 ? (runtime.stage === RESCUE && nearEnemy(objective.target, 8) ? 'BEREICH SICHERN' : runtime.stage === DEFENSE ? 'HALTE DIE STELLUNG' : ['intro','fuel','noah','serum','tower'].includes(objective.id)?'[E] INTERAGIEREN':objective.detail) : '';
         if(runtime.stage===TOWER&&distance<3.2&&horizontalDistance(npcAnchors.noah.position,objective.target)>12)runtime.prompt='NOAH ZUM SENDER BEGLEITEN';
@@ -1392,14 +1488,15 @@ export default function Game() {
       }
       weapon.visible = !conversation;
       if(muzzle.intensity>0){muzzleMesh.getWorldPosition(muzzle.position);camera.worldToLocal(muzzle.position);if(conversation)muzzle.intensity=0;}
-      updateEnvironment();shadowElapsed+=dt;
+      updateEnvironment(dt);shadowElapsed+=dt;
       if(shadowElapsed>=.06||shadowPosition.distanceToSquared(camera.position)>1){renderer.shadowMap.needsUpdate=true;shadowElapsed=0;shadowPosition.copy(camera.position);}
       renderer.info.reset();composer.render();renderedFrames++;
     };
     animate();
 
     return () => {
-      disposed = true; apiRef.current = null; cancelAnimationFrame(frame); document.exitPointerLock?.();
+      saveGame(true);disposed = true; apiRef.current = null; cancelAnimationFrame(frame); document.exitPointerLock?.();
+      removeEventListener('pagehide',onLeave);removeEventListener('beforeunload',onLeave);document.removeEventListener('visibilitychange',onVisibility);
       if(process.env.NODE_ENV !== 'production')Reflect.deleteProperty(window,'__nachtwache');
       removeEventListener('blur', onBlur); removeEventListener('mouseup',onMouseUp); canvas.removeEventListener('contextmenu',onContext); audio?.close();
       removeEventListener('keydown', onKeyDown); removeEventListener('keyup', onKeyUp); removeEventListener('mousemove', onMouseMove); removeEventListener('resize', queueResize); document.removeEventListener('pointerlockchange', onPointerLock); canvas.removeEventListener('mousedown', onMouseDown);
@@ -1412,6 +1509,8 @@ export default function Game() {
   const resume = useCallback(() => apiRef.current?.resume(), []);
   const objective = OBJECTIVES[hud.stage];
   const currentHouse=SAFEHOUSES.find(h=>houseContains(h,hud.x,hud.z));
+  const currentUv=uvProtectedAt(hud.elapsed,hud.houses,hud.x,hud.z);
+  const currentThreat=nightThreat(hud.elapsed);
   const shelter=SAFEHOUSES.find(h=>h.id===selectedHouse);
   const shelterState=shelter?hud.houses[shelter.id]:null;
 
@@ -1421,11 +1520,13 @@ export default function Game() {
       <div className="vignette" aria-hidden="true" /><div className="grain" aria-hidden="true" />
 
       {screen === 'playing' && !dialogue && <div className="hud">
-        <div className="field-status"><span>TANNWALD · TAG {daylightAt(hud.elapsed).day} · {daylightAt(hud.elapsed).clock} · {daylightAt(hud.elapsed).period}</span>{refugeAt(hud.x,hud.z)&&<b>GESICHERTER UNTERSCHLUPF</b>}<b>{hud.battery < 20 ? 'LAMPE FAST LEER' : 'TASCHENLAMPE'} {Math.ceil(hud.battery)}%</b><span>{hud.hasMap ? '[M] Karte · [J] Journal' : '[J] Ausrüstung · Karte bei Mara'} · {hud.visited.filter(id=>EXPLORABLE_IDS.includes(id)).length}/{EXPLORABLE_IDS.length} Orte</span><span>WASSER {Math.ceil(hud.thirst)}% · SCHUTZ {Math.ceil(hud.protection)}</span>{hud.infection>0 && <span className={hud.infection>70?'infected':''}>INFEKTION {Math.ceil(hud.infection)}% · [7] behandeln</span>}</div>
+        <div className="field-status"><span>TANNWALD · TAG {daylightAt(hud.elapsed).day} · {daylightAt(hud.elapsed).clock} · {daylightAt(hud.elapsed).period}</span>{currentUv?<b>UV-SCHUTZ AKTIV · SAFEHOUSE</b>:refugeAt(hud.x,hud.z)&&<b>UNTERSCHLUPF · UV-LAMPEN AUS</b>}{currentThreat.strength>.05&&!currentUv&&<b className="night-warning">{currentThreat.strength>.8?'NACHT · INFIZIERTE BESONDERS GEFÄHRLICH':'DÄMMERUNG · SAFEHOUSE SUCHEN'}</b>}<b>{hud.battery < 20 ? 'LAMPE FAST LEER' : 'TASCHENLAMPE'} {Math.ceil(hud.battery)}%</b><span>{hud.hasMap ? '[M] Karte · [J] Journal' : '[J] Ausrüstung · Karte bei Mara'} · {hud.visited.filter(id=>EXPLORABLE_IDS.includes(id)).length}/{EXPLORABLE_IDS.length} Orte</span><span>WASSER {Math.ceil(hud.thirst)}% · SCHUTZ {Math.ceil(hud.protection)}</span>{hud.infection>0 && <span className={hud.infection>70?'infected':''}>INFEKTION {Math.ceil(hud.infection)}% · [7] behandeln</span>}</div>
         <header className="fps-mission">
-          <div><small>{objective.place} · AUFTRAG {hud.stage + 1}/{OBJECTIVES.length}</small><strong>{objective.title}</strong><span>{objective.detail}</span></div>
+          <div><small>KAPITEL {objective.chapter+1} · {CHAPTERS[objective.chapter].title} · {hud.stage + 1}/{OBJECTIVES.length}</small><strong>{objective.title}</strong><span className="mission-reason">{objective.reason}</span><span>{objective.detail}</span></div>
           <b>{hud.distance}<small>M</small></b>
         </header>
+        <p className="story-goal">RETTUNGSZIEL · Noah und das Gegenmittel zum Konvoi bringen</p>
+        {saveError&&<p className="save-warning" role="status">{saveError}</p>}
         <section className="vitals">
           <div className="health-number">{hud.health}</div><div><span>GESUNDHEIT</span><div className="bar"><i style={{ width: `${hud.health}%` }} /></div><span>AUSDAUER</span><div className="bar stamina"><i style={{ width: `${hud.stamina}%` }} /></div></div>
         </section>
@@ -1436,7 +1537,7 @@ export default function Game() {
         {notice && <div className="loot-notice" role="status">{notice}</div>}
         {hud.prompt && <div className={hud.prompt === 'BEREICH SICHERN' ? 'fps-prompt danger-prompt' : 'fps-prompt'}>{hud.prompt}</div>}
         {hud.stage === DEFENSE && <div className="defense-timer"><small>KONVOI ANKUNFT</small><b>00:{String(hud.timer).padStart(2, '0')}</b></div>}
-        {currentHouse&&<section className="house-status"><b>{currentHouse.name}</b><span>Fenster {hud.houses[currentHouse.id].windows.filter(Boolean).length}/4 · Türen {hud.houses[currentHouse.id].reinforced.filter(Boolean).length}/2 · Bett {hud.houses[currentHouse.id].bed?'✓':'offen'}</span><span>{houseProtected(hud.houses[currentHouse.id])?'GESICHERT':hud.houses[currentHouse.id].claimed?'TÜREN OFFEN · UNGESCHÜTZT':'E an Fenstern, Türen und Bett'}</span></section>}
+        {currentHouse&&<section className="house-status"><b>{currentHouse.name}</b><span>Fenster {hud.houses[currentHouse.id].windows.filter(Boolean).length}/4 · Türen {hud.houses[currentHouse.id].reinforced.filter(Boolean).length}/2 · Bett {hud.houses[currentHouse.id].bed?'✓':'offen'}</span><span>{currentUv?'GESICHERT · UV AKTIV':houseProtected(hud.houses[currentHouse.id])?'GESICHERT · UV AUS':hud.houses[currentHouse.id].claimed?'TÜREN OFFEN · UV AUS':'UNGESICHERT · KEIN UV · E an Fenstern, Türen und Bett'}</span></section>}
       </div>}
 
       {screen === 'journal' && <section className="field-journal" role="dialog" aria-modal="true" aria-label="Feldjournal">
@@ -1444,9 +1545,9 @@ export default function Game() {
         <nav aria-label="Journalansicht"><button type="button" aria-pressed={journalTab === 'map'} onClick={() => setJournalTab('map')}>Karte & Aufgaben</button><button type="button" aria-pressed={journalTab === 'inventory'} onClick={() => setJournalTab('inventory')}>Ausrüstung</button><button type="button" aria-pressed={journalTab === 'notes'} onClick={() => setJournalTab('notes')}>Fundstücke <span>{hud.discovered.length}/5</span></button><span>Spiel pausiert</span></nav>
         {journalTab === 'map' ? <div className="journal-layout">
           <div className="map-panel">{hud.hasMap ? <WorldMap player={{ x: hud.x, z: hud.z }} target={objective.target} visited={hud.visited} buildings={mapBuildings} houses={hud.houses} respawn={hud.respawn} /> : <div className="map-missing"><h3>Die Karte hat Mara.</h3><p>Sprich mit ihr am Feuer der Rangerstation. Sie erklärt dir die Lage und gibt dir ihre Karte.</p></div>}
-          <section className="quest-log"><h3>Hauptquest · {hud.stage+1}/{OBJECTIVES.length}</h3><article><b>{objective.title}</b><p>{objective.detail}</p></article><details><summary>Alle Aufträge</summary>{OBJECTIVES.map((m,i)=><p key={m.id}>{i<hud.stage?'✓':i===hud.stage?'→':'○'} {i+1}. {m.title}</p>)}</details></section>
-          <section className="quest-log"><h3>Eigene Unterschlüpfe</h3><p>Vier Fenster × 2 Bretter, zwei Türen × 1 Ersatzteil und ein Bett × 1 Ration. E am Bett aktiviert den Ort. Türen zum Schutz schließen; nachts von 19 bis 06 Uhr schlafen.</p>{SAFEHOUSES.map(h=><article key={h.id}><b>{h.name}{hud.respawn===h.id?' · RESPAWNPUNKT':''}</b><p>Fenster {hud.houses[h.id].windows.filter(Boolean).length}/4 · Türen {hud.houses[h.id].reinforced.filter(Boolean).length}/2 · Bett {hud.houses[h.id].bed?'bereit':'offen'} · {houseProtected(hud.houses[h.id])?'gesichert':hud.houses[h.id].claimed?'Türen offen':'noch nicht aktiviert'}</p></article>)}</section>
-          <section className="quest-log"><h3>Offene Spuren</h3><article><b>Das Licht der Oststadt</b><p>{hud.powerQuest===0?'Lenz wartet im gesicherten Schulhof der Oststadt.':hud.powerQuest===1?'Durchsuche die Werkstatt an der Ringstraße nach einer Sicherung.':hud.powerQuest===2?'Bring die Sicherung und zwei Ersatzteile zum Generator bei Lenz.':'✓ Strom wiederhergestellt. Der Polizeischlüssel öffnet die Waffenkammer.'}</p></article><article><b>Ein Name auf der Liste</b><p>{hud.benQuest===0?'In der Notaufnahme der Oststadt sucht Dr. Weber einen Vermissten.':hud.benQuest>=4?'✓ Ben lebt. Dr. Weber hat deine Wunden versorgt.':hud.benQuest===3?'Melde Dr. Weber im Krankenhaus, dass Ben im Waldcamp lebt.':hud.evidence.includes('ambulance')?'Folge dem Waldweg zum Camp am Birkenrain, südwestlich der Stadt.':hud.evidence.includes('triage')?'Suche das Funkprotokoll im Bahnhof im Süden.':'Suche die Patientenliste im Krankenhaus.'}</p></article><article><b>Was Falk verschwieg</b><p>{hud.evidence.includes('archive')?'✓ Original des Abbruchbefehls gesichert.':hud.keycard?'Keycard gefunden. Das Lazarus-Archiv braucht außerdem Strom.':'Am Kontrollpunkt Nord liegt der Zugang zum Lazarus-Archiv.'}</p></article></section>
+          <section className="quest-log"><h3>Euer Rettungsplan</h3><p>{STORY_GOAL}</p><ol className="story-chapters">{CHAPTERS.map((c,i)=><li key={c.title} aria-current={i===objective.chapter?'step':undefined}><b>{i<objective.chapter?'✓ ':''}{c.title}</b><p>{c.summary}</p></li>)}</ol><article><small>JETZT · {objective.place} · {hud.stage+1}/{OBJECTIVES.length}</small><b>{objective.title}</b><p>{objective.reason}</p><p>{objective.detail}</p></article><details><summary>Storyfortschritt ansehen</summary>{OBJECTIVES.map((m,i)=><p key={m.id}>{i<hud.stage?'✓':i===hud.stage?'→':'○'} {i+1}. {m.title}</p>)}</details></section>
+          <section className="quest-log"><h3>Eigene Unterschlüpfe</h3><p>Vier Fenster × 2 Bretter, zwei Türen × 1 Ersatzteil und ein Bett × 1 Ration. E am Bett aktiviert den Ort. Tore mit E am rechten Pfosten öffnen und schließen. Nach Aktivierung schaltet UV von 17:30 bis 06:30 Uhr ein; offene Tore bleiben nachts durch UV geschützt. Zum Schlafen die Haustüren schließen; Schlafzeit 19 bis 06 Uhr.</p>{SAFEHOUSES.map(h=><article key={h.id}><b>{h.name}{hud.respawn===h.id?' · RESPAWNPUNKT':''}</b><p>Fenster {hud.houses[h.id].windows.filter(Boolean).length}/4 · Türen {hud.houses[h.id].reinforced.filter(Boolean).length}/2 · Bett {hud.houses[h.id].bed?'bereit':'offen'} · {houseProtected(hud.houses[h.id])?'gesichert':hud.houses[h.id].claimed?'Türen offen':'noch nicht aktiviert'}</p></article>)}</section>
+          <section className="quest-log"><h3>Nebenauftrag · Ben finden</h3><p>Diese Suche ist freiwillig und gehört nicht zum nächsten Schritt eures Rettungsplans.</p><article><b>Ein Name auf der Liste</b><p>{hud.benQuest===0?'Dr. Weber sucht Ben Voss. Frag sie nach ihm, wenn du helfen möchtest.':hud.benQuest>=4?'✓ Ben lebt. Dr. Weber hat deine Wunden versorgt.':hud.benQuest===3?'Melde Weber, dass Ben im Waldcamp lebt.':hud.evidence.includes('ambulance')?'Folge dem Waldweg zum Camp am Birkenrain.':hud.evidence.includes('triage')?'Suche das Funkprotokoll im Bahnhof.':'Lies die Patientenliste in der Notaufnahme.'}</p></article></section>
           <div className="region-list">{CITY_PLACES.filter(p=>hud.visited.includes(p.id)).map(p=><div key={p.id}><b>{p.name}</b><p>{p.story}</p></div>)}</div>
           <div className="region-list">{REGIONS.map((region, i) => <div key={region.name}><b>0{i + 1} · {region.name}</b><span>{region.loot}</span><p>{region.detail}</p></div>)}{WORLD_ZONES.map(region=><div key={region.id}><b>{region.name}</b><span>RISIKO {region.risk+1}/4 · {hud.visited.includes(region.id)?'ERKUNDET':'UNERKUNDET'}</span><p>{region.detail}</p></div>)}</div></div>
         </div> : journalTab === 'inventory' ? <div className="equipment-layout"><aside className="inventory-panel"><h3>Waffen & Ausrüstung</h3><p className="ammo-stock">Reserve: 9 mm {hud.arsenal.pistol.reserve} · 12/70 {hud.arsenal.shotgun.reserve} · 5.56 mm {hud.arsenal.rifle.reserve}</p>{(Object.keys(WEAPONS) as WeaponKind[]).filter(k=>hud.arsenal[k].owned).map(k=><div key={k}><section><b>{hud.weapon===k?'● ':''}{WEAPONS[k].name}</b><p>{k==='axe'?'Nahkampf · 20 Ausdauer · 2,6 m':WEAPONS[k].ammo + ' · ' + hud.arsenal[k].ammo + ' / ' + hud.arsenal[k].reserve + ' Patronen'}</p></section></div>)}<p className="journal-tip">[Q] Waffe wechseln · [R] Nachladen · Rechte Maus: zielen. Nachladen wird beim Waffenwechsel abgebrochen.</p>{(Object.entries(ITEMS) as [ItemKind, typeof ITEMS[ItemKind]][]).map(([kind, item]) => <div key={kind}><kbd>{item.key}</kbd><section><b>{item.name} <em>×{hud.inventory[kind]}</em></b><p>{item.purpose}</p></section></div>)}<p className="journal-tip">Mit E sammeln und Briefe lesen. Gehen ist leise; Sprinten und Schüsse locken Infizierte an. Fackeln geben dir Zeit zum Durchbrechen.</p><p className="journal-tip">{hud.repaired ? '✓ Sender verstärkt.' : 'Am Funkturm: [5] mit drei Ersatzteilen.'}</p></aside>
@@ -1460,15 +1561,18 @@ export default function Game() {
       {screen === 'title' && <section className="title-card fps-title">
         <p className="eyebrow">OPEN WORLD SURVIVAL · TANNWALD · 09:00 UHR</p>
         <h1>NACHT<span>WACHE</span></h1>
-        <p className="tagline">Eine Stadt voller Spuren. Verlassene Straßen, letzte Überlebende — und etwas, das dich gehört hat.</p>
-        <button type="button" onClick={start} disabled={!loaded}>{loaded ? 'MISSION STARTEN' : 'TANNWALD WIRD GELADEN…'} <span>→</span></button>
+        <p className="tagline">Ein letzter Konvoi. Eine stabile Dosis. Und niemand bleibt zurück.</p>
+        <div className="start-actions"><button type="button" onClick={()=>apiRef.current?.continue()} disabled={!loaded||!savedGame}>WEITERSPIELEN <span>→</span></button><button type="button" className="secondary" onClick={start} disabled={!loaded}>{loaded?'NEUES SPIEL':'TANNWALD WIRD GELADEN…'} <span>↻</span></button></div>
+        <p className="save-summary" role="status">{savedGame?`Gespeichert · Kapitel ${CAMPAIGN[savedGame.progress.stage].chapter+1} · ${CAMPAIGN[savedGame.progress.stage].title} · Tag ${daylightAt(savedGame.progress.elapsed).day}, ${daylightAt(savedGame.progress.elapsed).clock}`:'Noch kein Spielstand vorhanden.'}</p>
+        {savedGame&&<p className="save-note">Automatische Speicherung in diesem Browser. Neues Spiel ersetzt deinen bisherigen Durchgang.</p>}
+        {saveError&&<p className="asset-warning" role="status">{saveError}</p>}
         <div className="controls"><b>WASD</b> Bewegen <b>MAUS</b> Umschauen / Schießen <b>E</b> Interagieren <b>R</b> Nachladen <b>F</b> Licht <b>SHIFT</b> Sprint</div>
         <div className="controls"><b>1–8</b> Items benutzen <b>Q</b> Waffe wechseln <b>J / M</b> Karte, Inventar & Briefe</div>
         {assetErrors.length > 0 && <p role="status" className="asset-warning">{assetErrors.length} Assets fehlen. Ersatzdarstellungen sind aktiv.</p>}
-        <p className="story-hook">Als Ranger Elias Voss durchquerst du die Rangerstation, das verlassene Dorf, den Friedhof, die Klinik und den Funkturm. Finde Mara und Noah, bevor Dr. Falks Experiment Tannwald verschlingt.</p>
+        <p className="story-hook">{STORY_GOAL} Stelle Maras Funkkontakt her, rette Noah und folge Webers Spur zur stabilen Dosis. Unterwegs lernst du, dich zu versorgen, leise zu kämpfen und sichere Schlafplätze einzurichten.</p>
         <div className="desktop-note">KLICKEN AKTIVIERT DIE MAUSSTEUERUNG · KOPFHÖRER EMPFOHLEN</div>
       </section>}
-      {screen === 'paused' && <section className="overlay-card compact"><p className="eyebrow">MISSION PAUSIERT</p><h2>Bleib leise.</h2><p>1 Verband · 2 Ration · 3 Batterie · 4 Fackel · 5 Sender reparieren<br />6 Wasser · 7 Antibiotika · 8 Weste · Q Waffenwechsel<br />E sammeln / lesen · J Karte & Fundstücke · F Taschenlampe</p><button type="button" onClick={resume}>WEITERSPIELEN <span>→</span></button><button type="button" onClick={() => apiRef.current?.journal()}>FELDJOURNAL <span>→</span></button></section>}
+      {screen === 'paused' && <section className="overlay-card compact"><p className="eyebrow">MISSION PAUSIERT</p><h2>Bleib leise.</h2><p>1 Verband · 2 Ration · 3 Batterie · 4 Fackel · 5 Sender reparieren<br />6 Wasser · 7 Antibiotika · 8 Weste · Q Waffenwechsel<br />E sammeln / lesen · J Karte & Fundstücke · F Taschenlampe</p><button type="button" onClick={resume}>WEITERSPIELEN <span>→</span></button><button type="button" onClick={() => apiRef.current?.journal()}>FELDJOURNAL <span>→</span></button><button type="button" className="secondary" onClick={()=>apiRef.current?.menu()}>SPEICHERN & HAUPTMENÜ <span>↩</span></button></section>}
       {screen === 'shelter' && shelter && shelterState && <section className="overlay-card shelter-card" role="dialog" aria-modal="true" aria-label="Unterschlupf verwalten">
         <p className="eyebrow">UNTERSCHLUPF · TAG {daylightAt(hud.elapsed).day} · {daylightAt(hud.elapsed).clock}</p><h2>{shelter.name}</h2>
         <ul><li>Fenster vernagelt: {shelterState.windows.filter(Boolean).length}/4</li><li>Türen verstärkt: {shelterState.reinforced.filter(Boolean).length}/2 · geschlossen: {shelterState.closed.filter(Boolean).length}/2</li><li>Schlafplatz: {shelterState.bed?'vorbereitet':'1 Ration benötigt'}</li></ul>

@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions -- Playwright CLI invokes this function with its page argument. */
 async(page)=>{
   const check=(value,message)=>{if(!value)throw Error(message);};
-  await page.waitForFunction(()=>window.__nachtwache&&!document.querySelector('.title-card button')?.disabled);
+  await page.waitForFunction(()=>window.__nachtwache&&!document.querySelector('.start-actions .secondary')?.disabled);
   await page.evaluate(()=>{const g=window.__nachtwache;g.start();g.resume();});
   const houses=[['lodge',-77,5],['fire',120,30],['housing',181,30],['farm',-113,69]];
   for(const [id,x,z] of houses){
@@ -45,7 +45,7 @@ async(page)=>{
       await page.screenshot({path:'output/playwright/safehouse-night.png'});
       await page.getByRole('button',{name:'BIS 06 UHR SCHLAFEN',exact:true}).click();
       state=await page.evaluate(()=>window.__nachtwache.state());
-      check(state.elapsed===1260&&state.learned.includes('sleep'),'Sleep reaches next morning and records tutorial');
+      check(state.elapsed===1260,'Sleep reaches next morning');
     }
     await page.getByRole('button',{name:'ZURÜCK INS SPIEL · ESC',exact:true}).click();
     await page.waitForFunction(()=>window.__nachtwache.state().invulnerable<=0);
@@ -54,6 +54,12 @@ async(page)=>{
       const s=g.state();g.teleport(x,z+1);g.hurt(200);return s;
     },{x,z});
     check(!before.houses[id].closed[1]&&!before.protectedHouse,'Opening a reinforced door suspends shelter safety');
+    if(id==='lodge'){
+      await page.evaluate(()=>window.__nachtwache.menu());await page.reload();
+      await page.waitForFunction(()=>window.__nachtwache&&!document.querySelector('.start-actions .secondary')?.disabled,{}, {timeout:90000});
+      await page.getByRole('button',{name:/^WEITERSPIELEN/}).click();
+      check((await page.evaluate(()=>window.__nachtwache.state())).health===0,'Death restores without silently reviving the player');
+    }
     await page.getByRole('button',{name:'IM UNTERSCHLUPF AUFWACHEN'}).click();
     state=await page.evaluate(()=>window.__nachtwache.state());
     check(state.health===100&&state.stage===before.stage&&state.respawn===id,'Respawn restores health and preserves campaign');

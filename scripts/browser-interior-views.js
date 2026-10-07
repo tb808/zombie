@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions -- Playwright CLI supplies page. */
 async (page) => {
   await page.setViewportSize({ width: 1280, height: 800 });
-  await page.waitForFunction(() => window.__nachtwache && !document.querySelector('.title-card button')?.disabled);
+  await page.waitForFunction(() => window.__nachtwache && !document.querySelector('.start-actions .secondary')?.disabled);
   const views = [
     ['cafe-dining', 137, 36.8, 134.3, 1.1, 34.7],
     ['cafe-kitchen', 137, 31.8, 139.65, 1.25, 29.3],

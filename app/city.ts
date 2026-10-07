@@ -47,7 +47,7 @@ export const CITY_LOOT = [
 export const DISCOVERIES: { id: string; x: number; z: number; y?: number; title: string; text: string }[] = [
   { id:'triage', x:120,z:-72,title:'Patientenliste · Ben Voss',text:'Ben wurde aus Zimmer 4 verlegt. Der Krankenwagen fuhr zum Bahnhof. An der Rückseite der Liste: „Nicht zum Militär. Folgt dem alten Waldweg.“' },
   { id:'ambulance',x:181,z:87,title:'Funkprotokoll · Wagen 12',text:'Ben und drei Kinder sind zu Fuß weiter. Die Ranger haben am Birkenrain ein Camp eingerichtet. Ben trägt die Schachtel mit Leas Fotos.' },
-  { id:'archive',x:120,z:-136,title:'Lazarus · der Abbruchbefehl',text:'Falk erhielt den Abbruchbefehl bereits am Nachmittag. Er deaktivierte die Sirenen und ließ die Evakuierungsbusse in die Sperrzone fahren. Dr. Weber hat die Unterschrift gesichert.' },
+  { id:'archive',x:120,z:-136,title:'Lazarus · Lagerprotokoll und Abbruchbefehl',text:'Dr. Webers Lagerprotokoll: Nur Dosis C-07 ist stabil. Sie liegt im blauen Behälter im Laborcontainer der alten Klinik westlich der Oststadt. Andere Proben nicht öffnen. Angeheftet ist Falks unterschriebener Abbruchbefehl: Er wusste schon am Nachmittag von der Gefahr, deaktivierte aber die Sirenen und ließ die Evakuierungsbusse in die Sperrzone fahren. Bringt die Dosis und dieses Original zum Konvoi.' },
   { id:'home',x:181,z:27,title:'Für Papa',text:'Wir gehen mit Frau Weber in die Schule. Dein Essen steht auf dem Tisch. Wenn du kommst: Bring die rote Tasche mit. Lea.' },
   { id:'shelter',x:120,z:77,title:'Namen an der Tafel',text:'Lea — Konvoi 2. Ben — verletzt, Bahnhof. Mara — hält die Station. Unter den Namen steht: „Nicht streichen. Wiederfinden.“' },
   ...INTERIOR_DISCOVERIES,

@@ -5,7 +5,7 @@ async (page) => {
   page.on('console', onConsole); page.on('pageerror', onError);
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto('http://localhost:3000');
-  await page.waitForFunction(() => window.__nachtwache && !document.querySelector('.title-card button')?.disabled, {}, { timeout: 60000 });
+  await page.waitForFunction(() => window.__nachtwache && !document.querySelector('.start-actions .secondary')?.disabled, {}, { timeout: 60000 });
   const result = await page.evaluate(async () => {
     const g = window.__nachtwache, canvas = document.querySelector('.game-canvas'), gl = canvas.getContext('webgl2');
     let lost = 0; canvas.addEventListener('webglcontextlost', () => lost++);

@@ -2,7 +2,7 @@
 async(page)=>{
   await page.goto('about:blank');const errors=[],onError=e=>errors.push(e.message),onConsole=m=>{if(m.type()==='error')errors.push(m.text());};page.on('pageerror',onError);page.on('console',onConsole);
   await page.setViewportSize({width:1920,height:1080});await page.goto('http://localhost:3000');
-  await page.waitForFunction(()=>window.__nachtwache&&!document.querySelector('.title-card button')?.disabled,{},{timeout:90000});
+  await page.waitForFunction(()=>window.__nachtwache&&!document.querySelector('.start-actions .secondary')?.disabled,{},{timeout:90000});
   const check=(v,m)=>{if(!v)throw Error(m);},world=await page.evaluate(()=>window.__nachtwache.world());
   check(world.dressing.props>1200&&world.dressing.scenes>=23,'Substantial dressing loaded');
   check(world.bounds.minX===-1200&&world.bounds.maxX===1200&&world.structures.length===122,'Regional layout preserved');

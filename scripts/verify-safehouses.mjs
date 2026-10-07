@@ -9,7 +9,7 @@ import { CAMPAIGN, missionIndex } from '../app/campaign.ts';
 
 const states=newHouses(), other=newHouses(), obstacles=[];
 const city=buildCity(new Scene(),()=>0,obstacles,()=>new Mesh(new BoxGeometry(),new MeshBasicMaterial()));
-assert.equal(CAMPAIGN.length,24);assert.equal(new Set(CAMPAIGN.map(m=>m.id)).size,24);
+assert.equal(CAMPAIGN.length,26);assert.equal(new Set(CAMPAIGN.map(m=>m.id)).size,26);
 assert(missionIndex('house')<missionIndex('sleep')&&missionIndex('sleep')<missionIndex('serum'));
 for(const h of SAFEHOUSES){
   const state=states[h.id], parts=city.fortifications.filter(f=>f.house===h.id);
@@ -44,4 +44,4 @@ for(const elapsed of [600,900,1140,3*1440+1000]){
 }
 for(const f of city.fortifications)city.setFortification(f.house,f.kind,f.index,false);
 assert(city.fortifications.every(f=>!f.obstacle||!obstacles.includes(f.obstacle)),'New run removes all fortification collision');
-console.log('PASS: 24 campaign steps, four enterable/fortifiable houses, real windows, door access, resources, independent state, night-only sleep and next-day morning.');
+console.log('PASS: 26 campaign steps, four enterable/fortifiable houses, real windows, door access, resources, independent state, night-only sleep and next-day morning.');

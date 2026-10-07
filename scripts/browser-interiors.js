@@ -2,7 +2,7 @@
 async (page) => {
   const check = (ok, message) => { if (!ok) throw Error(message); };
   await page.setViewportSize({ width: 960, height: 640 });
-  await page.waitForFunction(() => window.__nachtwache && !document.querySelector('.title-card button')?.disabled);
+  await page.waitForFunction(() => window.__nachtwache && !document.querySelector('.start-actions .secondary')?.disabled);
   const places = [
     ['pharmacy', 137, -72, ['medkit', 'antibiotic', 'water']],
     ['practice', 198, -72, ['medkit', 'antibiotic', 'battery']],

@@ -17,13 +17,13 @@ export type Brain = { state: BrainState; time: number; memory: number; lastKnown
 export const makeBrain = (home: Point, phase = 0, resting = false): Brain => ({ state: resting ? 'feed' : 'idle', time: resting ? 8 : 1 + phase % 3, memory: 0, home: { ...home }, lastKnown: { ...home }, target: { ...home }, phase, attackLanded: false });
 export function transition(brain: Brain, state: BrainState, time = 0) { brain.state = state; brain.time = time; brain.attackLanded = false; }
 export type Stimulus = Point & { radius: number; life: number; kind: 'shot' | 'step' | 'alarm' | 'flare' | 'explosion' };
-export function think(brain: Brain, kind: ZombieKind, position: Point, player: Point, yaw: number, obstacles: readonly Obstacle[], noises: readonly Stimulus[], dt: number): { speed: number; strike: boolean } {
+export function think(brain: Brain, kind: ZombieKind, position: Point, player: Point, yaw: number, obstacles: readonly Obstacle[], noises: readonly Stimulus[], dt: number, sightScale = 1): { speed: number; strike: boolean } {
   const spec = ZOMBIES[kind];
   brain.time -= dt; brain.memory = Math.max(0, brain.memory - dt);
   if (brain.state === 'dead') return { speed: 0, strike: false };
   const dx = player.x - position.x, dz = player.z - position.z, distance = Math.hypot(dx, dz);
   const facing = (Math.sin(yaw) * dx + Math.cos(yaw) * dz) / Math.max(distance, .001);
-  const sees = distance < spec.sight && (distance < 3 || facing > -.15 || brain.state === 'chase') && !segmentBlocked(position.x, position.z, player.x, player.z, obstacles);
+  const sees = distance < spec.sight * sightScale && (distance < 3 || facing > -.15 || brain.state === 'chase') && !segmentBlocked(position.x, position.z, player.x, player.z, obstacles);
   if (sees) { brain.lastKnown = { ...player }; brain.memory = 6; }
   const noise = noises.filter(n => n.life > 0 && Math.hypot(n.x - position.x, n.z - position.z) < n.radius).sort((a, b) => (b.kind === 'flare' ? 100 : b.radius) - (a.kind === 'flare' ? 100 : a.radius))[0];
   if (['hit', 'fall', 'rise', 'notice', 'recover'].includes(brain.state)) {

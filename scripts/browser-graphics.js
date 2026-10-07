@@ -4,7 +4,7 @@ async (page) => {
   page.on('console', onConsole); page.on('pageerror', onError);
   await page.setViewportSize({ width: 1120, height: 700 });
   await page.goto('http://localhost:3000');
-  await page.waitForFunction(() => window.__nachtwache && !document.querySelector('.title-card button')?.disabled, {}, { timeout: 60000 });
+  await page.waitForFunction(() => window.__nachtwache && !document.querySelector('.start-actions .secondary')?.disabled, {}, { timeout: 60000 });
   const style = await page.addStyleTag({ content: '.location-card,.hud,.credit,.loot-notice{visibility:hidden!important}' });
   const views = [
     ['ranger', -61, -35, -54, 2, -35, 12],

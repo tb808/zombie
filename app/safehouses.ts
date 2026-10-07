@@ -16,6 +16,8 @@ export const newHouses = (): Record<string, HouseState> => Object.fromEntries(SA
   windows: [false, false, false, false], reinforced: [false, false], closed: [false, false], bed: false, claimed: false,
 }]));
 export const houseReady = (h: HouseState) => h.windows.every(Boolean) && h.reinforced.every(Boolean) && h.closed.every(Boolean) && h.bed;
+// Opening an entrance does not dismantle the installed UV equipment.
+export const houseSecured = (h: HouseState) => h.claimed && h.windows.every(Boolean) && h.reinforced.every(Boolean) && h.bed;
 export const houseProtected = (h: HouseState) => h.claimed && houseReady(h);
 export const houseContains = (h: { x: number; z: number }, x: number, z: number, margin = 0) => Math.abs(x - h.x) < 7.1 + margin && Math.abs(z - h.z) < 6.6 + margin;
 export const canSleep = (elapsed: number) => { const { hours } = daylightAt(elapsed); return hours >= 19 || hours < 6; };

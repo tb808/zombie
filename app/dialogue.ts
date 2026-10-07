@@ -18,20 +18,12 @@ export function subtitleLines(text: string | readonly string[]): string[] {
 }
 
 export const MARA_INTRO = [
-  'Elias. Gut, dass du lebst. Seit gestern Abend ist Tannwald abgeriegelt.',
-  'In der alten Klinik lief Projekt Lazarus. Dr. Falk arbeitete dort an einem Virus.',
-  'Als die Versuche außer Kontrolle gerieten, verweigerte er den Abbruch. Die Infektion gelangte nach draußen.',
-  'Dann fielen die Sirenen aus. Die Evakuierungsbusse fuhren direkt in die Sperrzone.',
-  'Viele Menschen wurden infiziert. Sie greifen uns an und folgen Geräuschen. Sei draußen so leise wie möglich.',
-  'Wir haben die Rangerstation gesichert. Auch in der Oststadt und am Birkenrain halten sich noch Überlebende.',
-  'Dr. Weber konnte eine stabile Dosis Gegenmittel im Laborcontainer der alten Klinik sichern. Die müssen wir zum Konvoi bringen.',
-  'Aber unser Generator ist leer. Die Brennstoffzelle liegt auf dem verlassenen Markt. Vorher nehmen wir uns Zeit für deine Ausrüstung.',
-  'Pack den Verband am Lager ein, trink etwas und übe an der roten Zielscheibe neben Jonas. Ziele mit der rechten Maustaste, lade mit R nach und teste mit Q die Axt.',
-  'Such danach Noah am alten Friedhof. Er kennt das Labor und soll dich zum Funkturm begleiten.',
-  'Hier, nimm meine Karte. Sie zeigt ganz Tannwald: die Oststadt, den Birkenrain und unsere Unterschlüpfe.',
-  'Öffne sie mit M. Mit dem Mausrad oder Plus und Minus kannst du zoomen; mit gedrückter Maus verschiebst du sie.',
-  'Am Dorfrand steht ein begehbares Forsthaus. Räumt es, vernagelt die vier Fenster mit je zwei Brettern und verstärkt beide Türen mit je einem Ersatzteil.',
-  'Eine Ration am Bett macht daraus einen Schlafplatz. Aktiviere ihn als Unterschlupf und Respawnpunkt. Geschlossene Türen schützen euch; nachts könnt ihr bis zum Morgen schlafen.',
-  'Weitere Häuser zum Sichern findest du in der Feuerwache, im Lindenhof und am Hof Birkenrain. Dr. Weber und Lenz helfen euch danach mit Laborzugang und Strom.',
-  'Bring Noah und das Gegenmittel zum Funkturm 07. Wenn der Sender läuft, kann uns der Konvoi finden.',
+  'Elias. Die Sperrzone ist dicht, aber Konvoi 2 fährt noch außerhalb von Tannwald. Wenn wir ihn erreichen, kann er uns abholen.',
+  'Dr. Falk ließ seine Versuche in der alten Klinik weiterlaufen, obwohl der Abbruch befohlen war. Seitdem sind die Straßen voller Infizierter.',
+  'Dr. Weber konnte eine stabile Dosis Gegenmittel retten. Unser Ziel ist klar: Wir bringen sie und die Überlebenden zum Konvoi.',
+  'Zuerst brauchen wir Funkkontakt. Der Generator der Station ist leer; auf dem verlassenen Markt liegt eine Brennstoffzelle. Bring sie zu mir zurück.',
+  'Hier ist meine Karte. Öffne sie mit M, damit du den Markt findest. Das Missionszeichen zeigt immer den nächsten Schritt unseres Plans.',
+  'Nimm den Verband neben dem Lager und trink von deinem Wasser. Draußen musst du deine Wunden selbst versorgen können.',
+  'Jonas hat eine Pistole und eine Axt für dich bereitgelegt. Prüfe beide an seiner Scheibe, bevor du aufbrichst. Infizierte folgen Schüssen; die Axt ist leiser.',
+  'Ich bleibe am Funkgerät. Sobald du die Zelle zurückbringst, hören wir, wer draußen noch lebt – und wo wir als Nächstes gebraucht werden.',
 ] as const;
