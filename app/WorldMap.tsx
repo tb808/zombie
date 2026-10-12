@@ -5,11 +5,12 @@ import { CITY_PLACES, CITY_ROADS } from './city';
 import { REFUGES } from './environment';
 import { WORLD, type Point } from './survival';
 import { REGIONS } from './world';
-import { SAFEHOUSES, houseProtected, type HouseState } from './safehouses';
+import { SAFEHOUSES, houseProtected, houseSecured, type HouseState } from './safehouses';
 import { ROAD_LINES, WATER_LINES, LAKES, FIELDS, FORESTS, BRIDGES, WORLD_ZONES, REGION_POIS } from './regionPlan';
 
 type Footprint = { x: number; z: number; hx: number; hz: number };
 type View = { x: number; z: number; zoom: number };
+export type MapNpc = Point & { id: string; name: string };
 const width = WORLD.maxX - WORLD.minX, height = WORLD.maxZ - WORLD.minZ;
 const overview: View = { x: (WORLD.minX + WORLD.maxX) / 2, z: (WORLD.minZ + WORLD.maxZ) / 2, zoom: 1 };
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
@@ -18,7 +19,7 @@ function bounded(view: View): View {
   return { zoom, x: clamp(view.x, WORLD.minX + hx, WORLD.maxX - hx), z: clamp(view.z, WORLD.minZ + hz, WORLD.maxZ - hz) };
 }
 
-export default function WorldMap({ player, target, visited, buildings, houses, respawn }: { player: Point; target: Point; visited: string[]; buildings: Footprint[]; houses: Record<string,HouseState>; respawn: string | null }) {
+export default function WorldMap({ player, target, visited, buildings, houses, respawn, npcs }: { player: Point; target: Point; visited: string[]; buildings: Footprint[]; houses: Record<string,HouseState>; respawn: string | null; npcs: MapNpc[] }) {
   const [view, setView] = useState(overview);
   const svgRef = useRef<SVGSVGElement>(null);
   const drag = useRef<{ pointer: number; x: number; y: number; view: View; scaleX: number; scaleY: number } | null>(null);
@@ -40,6 +41,16 @@ export default function WorldMap({ player, target, visited, buildings, houses, r
     return () => svg.removeEventListener('wheel', onWheel);
   }, [zoom]);
   const markerScale = 3 / Math.sqrt(view.zoom);
+  const contactScale = 8 / view.zoom;
+  const focusPlace = (point: Point) => {
+    setView(bounded({ ...point, zoom: Math.max(14, view.zoom) }));
+    svgRef.current?.scrollIntoView({ block: 'nearest' });
+  };
+  const securedHouses = SAFEHOUSES.filter(h => houseSecured(houses[h.id]));
+  const houseStatus = (h: typeof SAFEHOUSES[number]) => {
+    if (!houseSecured(houses[h.id])) return 'Noch nicht gesichert';
+    return houseProtected(houses[h.id]) ? 'Gesichert' : 'Gesichert · Eingang offen';
+  };
   const path = (points: Point[]) => points.map((p,i)=>`${i?'L':'M'}${p.x} ${p.z}`).join(' ');
   const cityBlocks = [
     ...[105, 136, 167, 198].flatMap(x => [-161, 138].map(z => ({ x, z, hx: 5.5, hz: 6 }))),
@@ -54,7 +65,7 @@ export default function WorldMap({ player, target, visited, buildings, houses, r
       <button type="button" onClick={() => setView(overview)}>Ganze Karte</button>
       <button type="button" onClick={() => setView(bounded({ ...player, zoom: Math.max(10, view.zoom) }))}>Mein Standort</button>
     </div></header>
-    <div className="map-viewport"><svg ref={svgRef} viewBox={`${view.x - width / view.zoom / 2} ${view.z - height / view.zoom / 2} ${width / view.zoom} ${height / view.zoom}`} role="img" aria-label="Gesamte Spielwelt mit Straßen, Gebäuden, Unterschlüpfen, Standort und Missionsziel" tabIndex={0}
+    <div className="map-viewport"><svg ref={svgRef} viewBox={`${view.x - width / view.zoom / 2} ${view.z - height / view.zoom / 2} ${width / view.zoom} ${height / view.zoom}`} role="img" aria-label="Gesamte Spielwelt mit Straßen, Gebäuden, gesicherten Safehouses, bekannten Gesprächspartnern, Standort und Missionsziel" tabIndex={0}
       onKeyDown={event => {
         if (['+', '=', '-', 'Home', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) { event.preventDefault(); event.stopPropagation(); }
         if (event.key === '+' || event.key === '=') zoom(1.3);
@@ -101,11 +112,38 @@ export default function WorldMap({ player, target, visited, buildings, houses, r
       <text x="-53" y="-116" fontSize="8" fill="#748263" letterSpacing="3">TANNWALD</text>
       {CITY_PLACES.map(place => <g key={place.id}><title>{place.name} · begehbar{visited.includes(place.id) ? ' · erkundet' : ''}</title><rect x={place.x - (place.hx??7.5)} y={place.z - (place.hz??7)} width={(place.hx??7.5)*2} height={(place.hz??7)*2} fill={visited.includes(place.id) ? '#637b62' : '#a1987d'} stroke="#5f6854" strokeWidth=".5" />{view.zoom>=4&&label(place.name.split(' · ')[0], place.x, place.z + 14 * markerScale)}</g>)}
       {REGIONS.map((region, i) => <g key={region.name}><circle cx={region.x} cy={region.z} r={3 * markerScale} fill="#435c4b" />{view.zoom>=4&&label(`${i + 1} · ${region.name}`, region.x, region.z + 10 * markerScale)}</g>)}
-      {SAFEHOUSES.map(h=><g key={h.id} transform={`translate(${h.x+9} ${h.z-9}) scale(${markerScale})`}><title>{h.name} · {houseProtected(houses[h.id])?'gesichert':'sicherbares Haus'}{respawn===h.id?' · Respawnpunkt':''}</title><path d="M-5 0L0-5 5 0V6H-5Z" fill={houseProtected(houses[h.id])?'#397d54':'#b28851'} stroke="#f4e8c6" strokeWidth=".7"/>{respawn===h.id&&<text x="0" y="4" textAnchor="middle" fontSize="6" fill="#fff">R</text>}</g>)}
+      {REFUGES.map(r => <g key={`refuge-marker-${r.id}`} data-map-refuge={r.id} role="img" aria-label={`${r.name} · Gesicherter Unterschlupf`} transform={`translate(${r.x + r.hx} ${r.z - r.hz}) scale(${contactScale})`}>
+        <title>{r.name} · Gesicherter Unterschlupf</title>
+        <path d="M-6-6H6V0Q6 5 0 8Q-6 5-6 0Z" fill="#397d54" stroke="#f4e8c6" strokeWidth="1" />
+        <path d="M-3 0L-1 2 3-3" fill="none" stroke="#fff" strokeWidth="1.4" />
+        {view.zoom >= 6 && <text y="15" textAnchor="middle" fontSize="6" className="map-place-label">{r.name.split(' · ').at(-1)}</text>}
+      </g>)}
+      {SAFEHOUSES.map(h => <g key={h.id} data-map-house={h.id} data-secured={houseSecured(houses[h.id])} role="img" aria-label={`${h.name} · ${houseStatus(h)}${respawn === h.id ? ' · Respawnpunkt' : ''}`} transform={`translate(${h.x + 9} ${h.z - 9}) scale(${houseSecured(houses[h.id]) ? contactScale : markerScale})`}>
+        <title>{h.name} · {houseStatus(h)}{respawn === h.id ? ' · Respawnpunkt' : ''}</title>
+        <path d="M-6 0L0-6 6 0V7H-6Z" fill={houseSecured(houses[h.id]) ? '#397d54' : '#b28851'} stroke={houseSecured(houses[h.id]) && !houseProtected(houses[h.id]) ? '#f4b75c' : '#f4e8c6'} strokeWidth="1" />
+        {respawn === h.id ? <text x="0" y="5" textAnchor="middle" fontSize="7" fill="#fff">R</text> : houseSecured(houses[h.id]) && <path d="M-3 2L-1 4 3 0" fill="none" stroke="#fff" strokeWidth="1.4" />}
+        {view.zoom >= 6 && houseSecured(houses[h.id]) && <text y="15" textAnchor="middle" fontSize="6" className="map-place-label">{h.name.split(' · ').at(-1)}</text>}
+      </g>)}
+      {npcs.map(npc => <g key={npc.id} data-map-npc={npc.id} role="img" aria-label={`${npc.name} · Bereits gesprochen`} transform={`translate(${npc.x} ${npc.z}) scale(${contactScale})`}>
+        <title>{npc.name} · Bereits gesprochen</title>
+        <path d="M-7-7H7V5H1L-3 9V5H-7Z" fill="#65518c" stroke="#f6edf9" strokeWidth="1" />
+        <circle cy="-3" r="2" fill="#fff" /><path d="M-4 3Q-4-1 0-1Q4-1 4 3" fill="#fff" />
+        {view.zoom >= 6 && <text y="16" textAnchor="middle" fontSize="6" className="map-place-label">{npc.name.split(' · ')[0]}</text>}
+      </g>)}
       <g transform={`translate(${target.x} ${target.z}) scale(${markerScale})`}><title>Aktuelles Missionsziel</title><path d="M0-5L5 0 0 5-5 0Z" fill="#b97529" stroke="#fff5cf" strokeWidth="1" /><circle r="8" fill="none" stroke="#b97529" strokeWidth=".7" /></g>
       <g transform={`translate(${player.x} ${player.z}) scale(${markerScale})`}><title>Dein Standort</title><circle r="5" fill="#f9fbf0" stroke="#244f66" strokeWidth="1" /><circle r="2.5" fill="#246b88" /></g>
       <rect x={WORLD.minX + .5} y={WORLD.minZ + .5} width={width - 1} height={height - 1} fill="none" stroke="#7b8065" strokeWidth="1" />
     </svg><div className="map-compass" aria-label="Norden liegt oben">N<span>↑</span></div></div>
-    <footer className="map-caption"><span><i className="map-dot player" />Dein Standort</span><span><i className="map-dot target" />Missionsziel</span><span><i className="map-dot refuge" />Unterschlupf</span><span>2,4 × 2 km · Blau: Wasser · Braun: Feld-/Waldweg</span><span>Risiko: Grün 1–2 · Ocker 3 · Rot 4</span><span>⌂ Sicherbares Haus · Grün: gesichert · R: Respawn</span><span>Mausrad / + −: Zoom · Ziehen: Verschieben · Pos1: Ganze Karte</span></footer>
+    <footer className="map-caption"><span><i className="map-dot player" />Dein Standort</span><span><i className="map-dot target" />Missionsziel</span><span><i className="map-dot refuge" />Gesicherter Unterschlupf</span><span><i className="map-dot npc" />Bereits gesprochen</span><span>2,4 × 2 km · Blau: Wasser · Braun: Feld-/Waldweg</span><span>Risiko: Grün 1–2 · Ocker 3 · Rot 4</span><span>⌂ Braun: noch nicht gesichert · Grün: gesichert · R: Respawn · Gelber Rand: Eingang offen</span><span>Mausrad / + −: Zoom · Ziehen: Verschieben · Pos1: Ganze Karte</span></footer>
+    <div className="map-directory">
+      <section aria-label="Gesicherte Unterschlüpfe"><h4>Gesicherte Unterschlüpfe <span>{REFUGES.length + securedHouses.length}</span></h4><p>Name anklicken, um den Ort auf der Karte zu zeigen.</p><div>
+        {REFUGES.map(r => <button key={r.id} type="button" onClick={() => focusPlace(r)}><i className="map-dot refuge" /><span>{r.name}<small>Gesichert · bewachter Unterschlupf</small></span></button>)}
+        {securedHouses.map(h => <button key={h.id} type="button" onClick={() => focusPlace(h)}><i className="map-dot refuge" /><span>{h.name}<small>{houseStatus(h)}{respawn === h.id ? ' · Respawnpunkt' : ''}</small></span></button>)}
+      </div></section>
+      <section aria-label="Bekannte Gesprächspartner"><h4>Gesprächspartner <span>{npcs.length}</span></h4><p>Nur Personen, mit denen du schon gesprochen hast.</p><div>
+        {npcs.map(npc => <button key={npc.id} type="button" onClick={() => focusPlace(npc)}><i className="map-dot npc" /><span>{npc.name}<small>Bereits gesprochen · auf Karte zeigen</small></span></button>)}
+        {!npcs.length && <p>Noch keine Gespräche geführt.</p>}
+      </div></section>
+    </div>
   </section>;
 }

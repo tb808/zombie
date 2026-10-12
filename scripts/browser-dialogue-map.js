@@ -9,7 +9,7 @@ async (page) => {
   await page.getByText('Die Karte hat Mara.', { exact: true }).waitFor();
   check(!(await state()).hasMap, 'No map before speaking to Mara');
   await page.keyboard.press('m');
-  await page.evaluate(() => window.__nachtwache.teleport(-53, -37));
+  await page.evaluate(() => window.__nachtwache.teleport(window.__nachtwache.campaign().start.mara.x,window.__nachtwache.campaign().start.mara.z));
   await page.keyboard.press('e');
   await page.locator('.dialogue-subtitles').waitFor();
   const first = await state();
@@ -31,7 +31,7 @@ async (page) => {
   check((await state()).dialogue.index === 2, 'Pausing preserves the current statement');
   for (let i = 0; i < 30 && (await state()).dialogue; i++) await page.keyboard.press('Enter');
   const received = await state();
-  check(received.hasMap && received.stage === 1 && !received.dialogue, 'Finishing Mara grants the map and activates the market objective');
+  check(received.hasMap && received.stage === 1 && !received.dialogue, 'Finishing Mara grants the map and activates orientation in Fichtenau');
   await page.keyboard.press('m');
   const map = page.locator('.map-viewport svg');
   await map.waitFor();

@@ -1,4 +1,5 @@
-import { STRUCTURES, SpatialIndex, bridgeAt, inLegacy, lineDistance, nearestOn, roadsNear, smooth, waterClearance } from './regionPlan.ts';
+import { STRUCTURES, PARKED_CARS, REGION_POIS, REGION_BOUNDS, WORLD_ZONES, SpatialIndex, bridgeAt, inLegacy, lineDistance, nearestOn, roadsNear, smooth, waterClearance } from './regionPlan.ts';
+import { SITE_RESERVATIONS, START_CAMP } from './shelterSites.ts';
 
 const originalRaw = (x:number,z:number) => {
   const rolling=Math.sin(x*.055)*Math.cos(z*.07)*.7+Math.sin((x+z)*.035)*.38;
@@ -12,10 +13,30 @@ export function originalHeight(x:number,z:number){let h=originalRaw(x,z);
 }
 export function regionalRaw(x:number,z:number){
   const hill=(cx:number,cz:number,rx:number,rz:number,h:number)=>h*Math.exp(-(((x-cx)/rx)**2+((z-cz)/rz)**2));
-  return 3.8+Math.sin(x*.006)*Math.cos(z*.005)*2.2+Math.sin((x-z)*.009)*.8
-    +hill(-490,-860,410,180,26)+hill(-780,-850,170,150,18)+hill(-460,690,410,260,18)+hill(1100,-340,190,430,22)+hill(1060,700,240,200,15);
+  // Broad landforms overlap with smaller rolling contours rather than isolated
+  // cones. Fields have gentle slopes; forest ridges frame the village routes.
+  const rolling=2.8*Math.sin(x*.018+Math.sin(z*.009)) * Math.cos(z*.015)
+    +1.1*Math.sin(x*.037+z*.013)*Math.cos(z*.029);
+  return 5.5+Math.sin(x*.006)*Math.cos(z*.005)*3.2+rolling
+    +hill(-490,-860,410,180,32)+hill(-780,-850,170,150,22)
+    +hill(-460,690,410,260,23)+hill(1100,-340,190,430,29)+hill(1060,700,240,200,21)
+    +hill(-905,375,145,175,17)+hill(-590,370,155,115,14)
+    +hill(-330,505,125,165,19)+hill(-1080,-210,145,210,20)
+    +hill(-320,-350,175,125,13)+hill(45,-475,155,145,18)
+    +hill(280,490,180,125,16)+hill(445,-780,175,145,21)
+    -hill(-750,110,170,125,3)-hill(740,30,100,260,3);
 }
-const pads=new SpatialIndex<(typeof STRUCTURES)[number]>();for(const s of STRUCTURES)pads.add(s);
+const pads=new SpatialIndex<{x:number;z:number;hx:number;hz:number;anchorX:number;anchorZ:number}>();
+const villages=WORLD_ZONES.filter(z=>z.biome==='village');
+for(const s of STRUCTURES)pads.add({...s,hx:s.hx+4,hz:s.hz+4,anchorX:s.x,anchorZ:s.z});
+for(const p of PARKED_CARS)pads.add({...p,hx:3,hz:3.5,anchorX:p.x,anchorZ:p.z});
+for(const p of REGION_POIS){
+  // Entire working yards, including canopy feet/silos, share a level datum.
+  const yard=p.kind==='gas'||p.kind==='rest'?{x:p.x,z:p.z-8,hx:16,hz:14}
+    :p.kind==='farm'||p.kind==='power'?{x:p.x-2,z:p.z-13,hx:23,hz:13}
+    :p.kind==='camp'?{x:p.x,z:p.z+8,hx:16,hz:6}:null;
+  if(yard)pads.add({...yard,anchorX:p.x,anchorZ:p.z});
+}
 function baseHeight(x:number,z:number){
   const distance=Math.hypot(Math.max(-180-x,0,x-240),Math.max(-185-z,0,z-160));
   if(inLegacy(x,z))return originalHeight(x,z);
@@ -23,26 +44,59 @@ function baseHeight(x:number,z:number){
   // An urban terrace follows the old city instead of flattening the whole east.
   const urban=(1-smooth(630,725,x))*smooth(220,290,x)*(1-smooth(255,335,z))*smooth(-410,-320,z);
   h+=(.15-h)*urban;
+  // Settled village centres are natural clearings with gently graded edges.
+  // Surrounding wooded hills stay intact; yards and gathering places stay usable.
+  for(const v of villages){const edge=Math.hypot((x-v.x)/v.hx,(z-v.z)/v.hz);h+=(regionalRaw(v.x,v.z)-h)*(1-smooth(.85,1.65,edge));}
   const fortEdge=Math.max(Math.abs(x+400)-110,Math.abs(z+820)-85);
   h+=(regionalRaw(-400,-820)-h)*(1-smooth(0,45,fortEdge));
   return h;
 }
+function landHeight(x:number,z:number){
+  const h=baseHeight(x,z);if(inLegacy(x,z))return h;
+  // Higher hills need broader valley sides instead of vertical stream trenches.
+  const width=32+Math.min(40,Math.max(0,h)*1.5),bank=waterClearance(x,z,80);
+  return h+(-1.65-h)*(1-smooth(-3,width,bank));
+}
 export function groundHeight(x:number,z:number){
   if(inLegacy(x,z))return originalHeight(x,z);
-  let h=baseHeight(x,z);
+  let h=landHeight(x,z);
   const bank=waterClearance(x,z);
-  if(bank<35)h+=(-1.65-h)*(1-smooth(-3,32,bank));
-  for(const s of pads.query(x,z,25)){const edge=Math.max(Math.abs(x-s.x)-s.hx,Math.abs(z-s.z)-s.hz),t=1-smooth(0,12,edge);if(t>0)h+=(baseHeight(s.x,s.z)-h)*t;}
   // Mild road grades follow the surrounding contour. River banks stay carved.
   if(bank>14){let closest=Infinity,roadY=h;
-    for(const r of roadsNear(x,z,20)){const d=lineDistance({x,z},r)-r.width/2;if(d<closest){closest=d;const q=nearestOn({x,z},r.a,r.b);roadY=baseHeight(q.x,q.z);}}
-    h+=(roadY-h)*(1-smooth(0,9,closest));
+    for(const r of roadsNear(x,z,20)){const d=lineDistance({x,z},r)-r.width/2;if(d<closest){closest=d;const q=nearestOn({x,z},r.a,r.b);roadY=landHeight(q.x,q.z);}}
+    h+=(roadY-h)*(1-smooth(0,9,closest))*smooth(14,28,bank);
   }
+  // Apply foundations after roads. A nearby road must never tilt a house floor.
+  // Select one pad instead of accumulating neighbouring terrace influences.
+  let padEdge=Infinity,padY=h;
+  for(const s of pads.query(x,z,20)){const edge=Math.max(Math.abs(x-s.x)-s.hx,Math.abs(z-s.z)-s.hz);if(edge<padEdge){padEdge=edge;padY=landHeight(s.anchorX,s.anchorZ);}}
+  h+=(padY-h)*(1-smooth(0,16,padEdge));
+  for(const s of SITE_RESERVATIONS){const edge=Math.max(Math.abs(x-s.x)-s.hx,Math.abs(z-s.z)-s.hz),t=1-smooth(0,8,edge);if(t>0){const shared=Math.hypot(s.x-START_CAMP.x,s.z-START_CAMP.z)<40?START_CAMP:s;h+=(landHeight(shared.x,shared.z)-h)*t;}}
   return h;
+}
+// Grounded objects and actors use the same triangles as the rendered mesh.
+// Cached shared vertices also keep adjacent chunk edges exactly aligned.
+export const TERRAIN_STEP=2;
+const vertexColumns=(REGION_BOUNDS.maxX-REGION_BOUNDS.minX)/TERRAIN_STEP+1;
+const vertexRows=(REGION_BOUNDS.maxZ-REGION_BOUNDS.minZ)/TERRAIN_STEP+1;
+const vertexHeights=new Float64Array(vertexColumns*vertexRows).fill(NaN);
+export function terrainVertexHeight(x:number,z:number){
+  const ix=(x-REGION_BOUNDS.minX)/TERRAIN_STEP,iz=(z-REGION_BOUNDS.minZ)/TERRAIN_STEP;
+  if(!Number.isInteger(ix)||!Number.isInteger(iz)||ix<0||iz<0||ix>=vertexColumns||iz>=vertexRows)return groundHeight(x,z);
+  const index=iz*vertexColumns+ix;let y=vertexHeights[index];
+  if(Number.isNaN(y)){y=groundHeight(x,z);vertexHeights[index]=y;}return y;
+}
+export function terrainSurfaceHeight(x:number,z:number){
+  const x0=Math.floor(x/TERRAIN_STEP)*TERRAIN_STEP,z0=Math.floor(z/TERRAIN_STEP)*TERRAIN_STEP;
+  const u=(x-x0)/TERRAIN_STEP,v=(z-z0)/TERRAIN_STEP;
+  const a=terrainVertexHeight(x0,z0),b=terrainVertexHeight(x0+TERRAIN_STEP,z0),c=terrainVertexHeight(x0,z0+TERRAIN_STEP);
+  if(u+v<=1)return a+(b-a)*u+(c-a)*v;
+  const d=terrainVertexHeight(x0+TERRAIN_STEP,z0+TERRAIN_STEP);
+  return d+(c-d)*(1-u)+(b-d)*(1-v);
 }
 // Actor height includes bridge decks and short graded approaches. Terrain below
 // the bridge retains its riverbed, so water never rises through a false land dam.
-export function terrainHeight(x:number,z:number){const h=groundHeight(x,z),bridge=bridgeAt(x,z,14);
+export function terrainHeight(x:number,z:number){const h=inLegacy(x,z)?originalHeight(x,z):terrainSurfaceHeight(x,z),bridge=bridgeAt(x,z,14);
   if(bridge){const dx=x-bridge.x,dz=z-bridge.z,along=Math.abs(dx*Math.sin(bridge.rotation)+dz*Math.cos(bridge.rotation)),across=Math.abs(dx*Math.cos(bridge.rotation)-dz*Math.sin(bridge.rotation));return h+(bridge.level-h)*(1-smooth(bridge.length/2,bridge.length/2+14,along))*(1-smooth(bridge.width/2+1,bridge.width/2+8,across));}
   return h;
 }

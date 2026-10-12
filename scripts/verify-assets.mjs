@@ -76,7 +76,9 @@ for (let i = 0; i < queue.length; i++) {
     reachable.add(key); queue.push([nx, nz]);
   }
 }
-for (const point of targets) assert(reachable.has(`${point.x},${point.z}`), `${point.label}: no walkable path from spawn`);
+// This grid audits the original enclave. Regional start/loot paths are checked
+// with the full collision world in verify-campaign-region.mjs.
+for (const point of targets.filter(p=>p.x>=-87&&p.x<=84&&p.z>=-58&&p.z<=54)) assert(reachable.has(`${point.x},${point.z}`), `${point.label}: no walkable path through original enclave`);
 const wall = [{ x: 0, z: 0, hx: 2, hz: 2 }];
 assert(segmentBlocked(-5, 0, 5, 0, wall));
 assert(segmentBlocked(0, -5, 0, 5, wall));
@@ -84,5 +86,5 @@ assert(!segmentBlocked(-5, 3, 5, 3, wall));
 assert(!segmentBlocked(-5, 0, -3, 0, wall));
 const a = newInventory(), b = newInventory(); a.medkit = 0; assert.equal(b.medkit, 1);
 for (const kind of Object.keys(ITEMS)) assert([...LOOT,...CITY_LOOT,...HOUSE_LOOT].some(p => p.kind === kind));
-console.log(`${models.size} GLB models valid; ${obstacles.length} collision boxes; ${targets.length} reachable targets; cover and inventory checks passed.`);
+console.log(`${models.size} GLB models valid; ${obstacles.length} collision boxes; loot/notes outside model bounds, original enclave paths, cover and inventory checks passed.`);
 

@@ -5,16 +5,17 @@ async(page)=>{
   const state=()=>page.evaluate(()=>window.__nachtwache.state());
   await ready();
   await page.getByRole('button',{name:/^NEUES SPIEL/}).click();
-  await page.evaluate(()=>{const g=window.__nachtwache;g.resume();g.teleport(-53,-37);g.interact();g.nextDialogue();g.nextDialogue();g.menu();});
+  await page.evaluate(()=>{const g=window.__nachtwache;g.resume();g.teleport(g.campaign().start.mara.x,g.campaign().start.mara.z);g.interact();g.nextDialogue();g.nextDialogue();g.menu();});
   const original=await page.evaluate(()=>JSON.parse(localStorage.getItem('nachtwache.save.v1')));
   check(original.conversation.index===2&&original.progress.stage===0,'Quest waits for the complete conversation');
+  check(Math.abs(original.player.pitch)<=1.25,'Standing directly beside a speaker preserves a loadable camera angle');
   await page.screenshot({path:'output/playwright/story-start-menu.png'});
   await page.reload();await ready();
   await page.getByRole('button',{name:/^WEITERSPIELEN/}).click();
   check((await state()).dialogue?.index===2,'Continue restores exact subtitle');
   await page.evaluate(()=>{const g=window.__nachtwache;g.resume();while(g.state().dialogue)g.nextDialogue();g.pause();});
   check((await state()).mission==='map'&&(await state()).hasMap,'Restored dialogue grants map and advances once');
-  await page.evaluate(()=>{const g=window.__nachtwache;g.resume();g.teleport(-60,-36);g.interact();g.hurt(20);g.consume('medkit');g.shoot();g.reload();g.menu();});
+  await page.evaluate(()=>{const g=window.__nachtwache;g.resume();g.teleport(g.campaign().start.supplies.x,g.campaign().start.supplies.z);g.interact();g.hurt(20);g.consume('medkit');g.shoot();g.reload();g.menu();});
   const before=await page.evaluate(()=>JSON.parse(localStorage.getItem('nachtwache.save.v1')));
   check(before.reloadLeft>0&&before.loot.some(p=>p.remaining===0),'Save contains interrupted reload and consumed loot');
   await page.reload();await ready();await page.getByRole('button',{name:/^WEITERSPIELEN/}).click();
@@ -27,7 +28,7 @@ async(page)=>{
   await page.evaluate(()=>window.__nachtwache.resume());
   await page.waitForFunction(()=>!window.__nachtwache.state().reloading);
   const loaded=await state();check(loaded.arsenal.pistol.ammo===12&&loaded.arsenal.pistol.reserve===before.progress.arsenal.pistol.reserve-1,'Interrupted reload consumes exactly one reserve round');
-  await page.evaluate(()=>{const g=window.__nachtwache;g.teleport(-60,-36);g.interact();g.menu();});
+  await page.evaluate(()=>{const g=window.__nachtwache;g.teleport(g.campaign().start.supplies.x,g.campaign().start.supplies.z);g.interact();g.menu();});
   check((await state()).inventory.medkit===after.inventory.medkit,'Reloading cannot regenerate collected supply');
   await page.evaluate(()=>localStorage.setItem('nachtwache.save.v1','{broken'));
   await page.reload();await ready();

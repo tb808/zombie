@@ -14,12 +14,14 @@
     "check:assets": "node --experimental-strip-types scripts/verify-assets.mjs",
     "check:gameplay": "node --experimental-strip-types scripts/verify-survival.mjs && node --experimental-transform-types scripts/verify-zombie-animation.mjs",
     "check:environment": "node --experimental-strip-types scripts/verify-environment.mjs && node --experimental-strip-types scripts/verify-night-survival.mjs",
+    "check:campaign-region": "node --experimental-strip-types scripts/verify-campaign-region.mjs",
     "check:save": "node --experimental-strip-types scripts/verify-save.mjs",
     "check:safehouses": "node --experimental-strip-types scripts/verify-safehouses.mjs",
     "check:interiors": "node --experimental-strip-types scripts/verify-interiors.mjs",
     "check:graphics": "node --experimental-strip-types scripts/verify-graphics.mjs",
     "check:rendering": "node --experimental-strip-types scripts/verify-render-budget.mjs",
     "check:region": "node --experimental-strip-types scripts/verify-region.mjs",
+    "check:nature": "node --experimental-strip-types scripts/verify-terrain-nature.mjs",
     "check:settlements": "node --experimental-strip-types scripts/verify-settlements.mjs"
   },
   "dependencies": {

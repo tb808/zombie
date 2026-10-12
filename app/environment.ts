@@ -1,3 +1,4 @@
+import { START_CAMP } from './shelterSites.ts';
 // One real second advances one game minute; a full day lasts 24 minutes.
 export const DAY_SECONDS = 24 * 60;
 export const START_HOUR = 9;
@@ -24,6 +25,7 @@ export function daylightAt(elapsed: number) {
 }
 
 export const REFUGES = [
+  {id:'fichtenau-camp',name:'Fichtenau · Rangerlager',...START_CAMP},
   { id: 'ranger', name: 'Rangerstation', x: -62, z: -34, hx: 17, hz: 17 },
   { id: 'hospital', name: 'St. Anna · Schutzhof', x: 120, z: -70, hx: 12, hz: 13 },
   { id: 'shelter', name: 'Schule · Notunterkunft', x: 120, z: 80, hx: 12, hz: 13 },

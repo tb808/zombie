@@ -5,7 +5,7 @@ async(page)=>{
   await page.evaluate(()=>{const g=window.__nachtwache;g.start();g.pause();g.setTime(12);});
   await page.waitForTimeout(200);
   let env=await page.evaluate(()=>window.__nachtwache.environment());
-  check(env.gates.length===8&&env.gates.every(g=>!g.open&&!g.uv),'Eight closed gates, daytime UV off');
+  check(env.gates.length===22&&env.gates.every(g=>!g.open&&!g.uv),'Twenty-two closed gates, daytime UV off');
   check(env.gates.filter(g=>['lodge','fire','housing','farm'].includes(g.id)).every(g=>!g.lamps),'No UV installed in unsecured houses');
   await page.evaluate(()=>{const g=window.__nachtwache;g.resume();g.teleport(122.4,91.4);g.interact();g.pause();});
   check(await page.evaluate(()=>!window.__nachtwache.blocked(120,93)),'Opening the school gate clears player collision');

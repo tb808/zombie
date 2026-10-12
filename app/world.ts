@@ -1,3 +1,4 @@
+import { START_POINTS } from './shelterSites.ts';
 export const ITEMS = {
   medkit: { name: 'Verband', key: '1', purpose: 'Heilt 40 Gesundheit', color: '#ff776b', limit: 5 },
   ration: { name: 'Ration', key: '2', purpose: 'Füllt Ausdauer; 20 s sparsamer sprinten', color: '#efbd73', limit: 5 },
@@ -22,8 +23,8 @@ export const REGIONS = [
   { name: 'Funkturm 07', x: 66, z: -25, loot: 'Munition · Ersatzteile · Leuchtfackeln', detail: 'Ein verstärkter Sender verkürzt die Wartezeit auf den Konvoi.' },
 ] as const;
 export const LOOT: { kind: LootKind; x: number; z: number; count: number }[] = [
-  { kind: 'medkit', x: -60, z: -36, count: 1 }, { kind: 'ration', x: -57, z: -39, count: 2 },
-  { kind: 'flare', x: -50, z: -34, count: 1 }, { kind: 'ammo', x: -46, z: -7, count: 24 },
+  { kind: 'medkit', ...START_POINTS.supplies, count: 1 }, { kind: 'ration', x:START_POINTS.supplies.x+3,z:START_POINTS.supplies.z-3,count:2 },
+  { kind: 'flare', x:START_POINTS.mara.x-2,z:START_POINTS.mara.z+4,count:1 }, { kind: 'ammo', x: -46, z: -7, count: 24 },
   { kind: 'ration', x: -28, z: -5, count: 2 }, { kind: 'battery', x: -23, z: -5, count: 1 },
   { kind: 'ammo', x: -13, z: -5, count: 36 }, { kind: 'scrap', x: -7, z: -3, count: 1 },
   { kind: 'flare', x: 8, z: 5, count: 2 }, { kind: 'medkit', x: 12, z: 17, count: 1 },

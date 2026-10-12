@@ -1,5 +1,6 @@
 import type { Obstacle, Point } from './survival.ts';
 import type { LootKind } from './world.ts';
+import { SITE_RESERVATIONS } from './shelterSites.ts';
 
 // Metres, Y up, north = negative Z. The original campaign is a preserved enclave.
 export const LEGACY_BOUNDS = { minX: -180, maxX: 240, minZ: -185, maxZ: 160 };
@@ -100,7 +101,7 @@ const roadIndex=lineIndex(ROAD_SEGMENTS),waterIndex=lineIndex(WATER_SEGMENTS);
 export const roadsNear = (x:number,z:number,radius=30) => roadIndex.query(x,z,radius).map(s=>s.segment);
 export const watersNear = (x:number,z:number,radius=30) => waterIndex.query(x,z,radius).map(s=>s.segment);
 export const roadClearance = (x:number,z:number) => roadsNear(x,z).reduce((d,s)=>Math.min(d,lineDistance({x,z},s)-s.width/2),Infinity);
-export function waterClearance(x:number,z:number) {let d=watersNear(x,z).reduce((v,s)=>Math.min(v,lineDistance({x,z},s)-s.width/2),Infinity);for(const lake of LAKES)d=Math.min(d,(Math.hypot((x-lake.x)/lake.rx,(z-lake.z)/lake.rz)-1)*Math.min(lake.rx,lake.rz));return d;}
+export function waterClearance(x:number,z:number,radius=30) {let d=watersNear(x,z,radius).reduce((v,s)=>Math.min(v,lineDistance({x,z},s)-s.width/2),Infinity);for(const lake of LAKES)d=Math.min(d,(Math.hypot((x-lake.x)/lake.rx,(z-lake.z)/lake.rz)-1)*Math.min(lake.rx,lake.rz));return d;}
 export type Bridge = Point & { id:string; rotation:number; length:number; width:number; level:number };
 function intersections() {
   const bridges:Bridge[]=[];
@@ -153,7 +154,7 @@ function planStructures(){
     const dimensions=kind==='tower'?[10,9,25+seeded(n*43)*35]:kind==='warehouse'?[15,11,6]:kind==='barn'?[10,7,6]:kind==='apartment'?[10,8,11+seeded(n*39)*7]:[5.5+seeded(n*11)*2,5+seeded(n*13)*2,4.3+seeded(n*17)*3];
     const [hx,hz,height]=dimensions,c=Math.abs(Math.cos(rotation)),s=Math.abs(Math.sin(rotation));
     const b:Structure={id:`structure-${n++}`,x,z,hx:c*hx+s*hz,hz:s*hx+c*hz,width:hx*2,depth:hz*2,kind,zone,height,color:[0x939180,0x8e8272,0x7c8c83,0xb3a08a,0xa9adb0][n%5],rotation,enterable};
-    if(inLegacy(x,z,18)||x-b.hx<REGION_BOUNDS.minX+10||x+b.hx>REGION_BOUNDS.maxX-10||occupied.query(x,z,b.hx+4,b.hz+4).some(o=>overlaps(b,o,4)))return;
+    if(inLegacy(x,z,18)||x-b.hx<REGION_BOUNDS.minX+10||x+b.hx>REGION_BOUNDS.maxX-10||occupied.query(x,z,b.hx+4,b.hz+4).some(o=>overlaps(b,o,4))||SITE_RESERVATIONS.some(site=>overlaps(b,site,5)))return;
     const radius=Math.hypot(b.hx,b.hz);
     if(waterClearance(x,z)<radius+8||roadClearance(x,z)<radius+4)return;
     out.push(b);occupied.add(b);
@@ -185,12 +186,12 @@ function planStructures(){
 export const STRUCTURES=planStructures();
 export const PARKED_CARS=WORLD_ZONES.filter(z=>z.biome==='village'||z.id==='INDUSTRIAL_ZONE').flatMap(p=>{
   for(let i=0;i<24;i++){const angle=i*2.4,r=18+i*1.5,x=p.x+Math.cos(angle)*r,z=p.z+Math.sin(angle)*r;
-    if(roadClearance(x,z)>5&&waterClearance(x,z)>7&&!STRUCTURES.some(b=>overlaps({x,z,hx:1.8,hz:2.5},b,3)))return [{x,z,color:p.risk}];
+    if(roadClearance(x,z)>5&&waterClearance(x,z)>7&&!SITE_RESERVATIONS.some(b=>overlaps({x,z,hx:1.8,hz:2.5},b,3))&&!STRUCTURES.some(b=>overlaps({x,z,hx:1.8,hz:2.5},b,3)))return [{x,z,color:p.risk}];
   }return [];
 });
 export const REGION_SIGNS=[...WORLD_ZONES.filter(z=>z.biome==='village'||z.id==='MILITARY_BASE'||z.id==='INDUSTRIAL_ZONE'),...REGION_POIS].flatMap(p=>{
   for(let i=0;i<32;i++){const angle=i*2.4,r=16+i*.65,x=p.x+Math.cos(angle)*r,z=p.z+Math.sin(angle)*r;
-    if(roadClearance(x,z)>3&&waterClearance(x,z)>5&&!STRUCTURES.some(b=>overlaps({x,z,hx:2,hz:.5},b,2))&&!PARKED_CARS.some(b=>Math.hypot(x-b.x,z-b.z)<5))return [{x,z,name:p.name,risk:p.risk}];
+    if(roadClearance(x,z)>3&&waterClearance(x,z)>5&&!SITE_RESERVATIONS.some(b=>overlaps({x,z,hx:2,hz:.5},b,3))&&!STRUCTURES.some(b=>overlaps({x,z,hx:2,hz:.5},b,2))&&!PARKED_CARS.some(b=>Math.hypot(x-b.x,z-b.z)<5))return [{x,z,name:p.name,risk:p.risk}];
   }return [];
 });
 export const REGION_LOOT:{kind:LootKind;x:number;z:number;count:number}[]=[
@@ -207,7 +208,7 @@ export type TreePlacement=Point&{species:'pine'|'broadleaf';variant:number;scale
 export function planTrees(){const trees:TreePlacement[]=[];const occupied=new SpatialIndex<Obstacle>();for(const s of STRUCTURES)occupied.add(s);let n=1;
   for(let z=REGION_BOUNDS.minZ+14;z<REGION_BOUNDS.maxZ-14;z+=14)for(let x=REGION_BOUNDS.minX+14;x<REGION_BOUNDS.maxX-14;x+=14,n++){
     const wx=x+(seeded(n*13)-.5)*10,wz=z+(seeded(n*19)-.5)*10,d=forestDensity(wx,wz);
-    if(seeded(n*23)>d*.88||roadClearance(wx,wz)<7||occupied.query(wx,wz,9).length||REGION_LOOT.some(p=>Math.hypot(p.x-wx,p.z-wz)<8)||PARKED_CARS.some(p=>Math.hypot(p.x-wx,p.z-wz)<8)||REGION_SIGNS.some(p=>Math.hypot(p.x-wx,p.z-wz)<5))continue;
+    if(seeded(n*23)>d*.88||roadClearance(wx,wz)<7||occupied.query(wx,wz,9).length||SITE_RESERVATIONS.some(site=>overlaps({x:wx,z:wz,hx:2,hz:2},site,5))||REGION_LOOT.some(p=>Math.hypot(p.x-wx,p.z-wz)<8)||PARKED_CARS.some(p=>Math.hypot(p.x-wx,p.z-wz)<8)||REGION_SIGNS.some(p=>Math.hypot(p.x-wx,p.z-wz)<5))continue;
     trees.push({x:wx,z:wz,species:seeded(n*37)>.28?'pine':'broadleaf',variant:n%4,scale:.95+seeded(n*29)*.65,rotation:seeded(n*31)*Math.PI*2});
   }return trees;}
 export const TREES=planTrees();

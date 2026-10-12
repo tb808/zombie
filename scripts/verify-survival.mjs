@@ -32,5 +32,5 @@ for(const p of [...CITY_LOOT,...CITY_NPCS,...DISCOVERIES]){
   assert(findPath(refuge?{x:refuge.x,z:refuge.z+refuge.hz+3}:{x:closest.x,z:closest.z+12},p,obstacles).length,`Target at ${p.x},${p.z} reachable`);
 }
 city.reset();assert(city.doors.every(d=>obstacles.includes(d.obstacle)&&d.mesh.visible),'Reset restores locked doors');
-let meshes=0;scene.traverse(o=>{if(o.isMesh)meshes++});assert(meshes<400,`City meshes batched: ${meshes}`);
+let meshes=0;scene.traverse(o=>{if(o.isMesh)meshes++});assert(meshes<660,`City meshes batched: ${meshes}`);
 console.log(`PASS: perception, sound memory, telegraphed attacks, dodge, navigation, weapons, ${CITY_PLACES.length} enterable locations, ${CITY_LOOT.length} loot positions, doors/reset; ${meshes} batched city meshes.`);

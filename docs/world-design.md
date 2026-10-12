@@ -4,7 +4,7 @@
 
 Eine Einheit entspricht einem Meter. Y zeigt nach oben; X/Z sind die Bodenebene, Norden ist negatives Z. Die Grenzen liegen bei X −1.200…1.200 und Z −1.000…1.000. Gegenüber 420 × 345 Metern ist die Fläche etwa 33-mal größer. Bei 4,6 m/s dauert ein 650-Meter-Weg gut zwei Minuten; die diagonale Durchquerung dauert zu Fuß etwa elf Minuten, ohne Kampf oder Erkundung.
 
-Die vorhandenen Questkoordinaten, Innenräume, Schutzbereiche, Waffen und Unterschlüpfe bleiben erhalten. `originalHeight` reproduziert das bisherige Gelände innerhalb der ursprünglichen Grenzen. Außerhalb blendet es sanft in die Region über. Die feinen bisherigen Vegetationsdetails bleiben auf das alte Gebiet begrenzt; ihre Schleife wächst nicht mit der neuen Fläche.
+Die bestehenden Innenräume, Schutzbereiche, Waffen und Unterschlüpfe bleiben erhalten. Der Einstieg mit Mara, Jonas, Übungsziel und Startvorräten liegt jetzt in Fichtenau, dem am weitesten vom Stadtzentrum entfernten Dorf. Die spätere Rettung, Klinik, Polizei, Archiv und Endverteidigung nutzen weiterhin ihre vorhandenen Orte. `originalHeight` reproduziert das bisherige Gelände innerhalb der ursprünglichen Grenzen. Außerhalb blendet es sanft in die Region über. Die feinen bisherigen Vegetationsdetails bleiben auf das alte Gebiet begrenzt; ihre Schleife wächst nicht mit der neuen Fläche.
 
 ## Struktur
 
@@ -28,6 +28,10 @@ Die Aue verläuft östlich der Stadt. Der Birkenbach durchzieht südliche Felder
 
 Gebäudeparzellen werden mit variablen Abständen aus diesen Routen abgeleitet. Innenstadt, Vororte, Industrie und Dörfer nutzen verschiedene Gebäudegruppen und Höhen. Acht Türme bilden die Skyline. Außenbereiche lassen große freie Landschaftsflächen bestehen. Waldmasken besitzen weiche Ränder, variierende Dichte und explizite Lichtungen um Orte; Feldflächen werden zusammenhängend definiert.
 
+Alle 13 Regionsgebiete besitzen ein einnehmbares Safehouse. Zusammen mit den vier bisherigen Häusern sind es 17. `shelterSites.ts` reserviert ihre Bauflächen sowie die Startpunkte; Gebäude, Bäume und Siedlungsdetails halten diese Flächen frei. `regionTerrain.ts` ebnet die Fundamente mit weichen Übergängen zum umliegenden Gelände. Camp und erstes Haus in Fichtenau teilen dieselbe Bodenhöhe. Die Safehouses nutzen echte Innenräume, Fenster, Türen, Baumaterial, Bett, UV-Schutz und auswählbare Respawnpunkte.
+
+Die lineare Hauptgeschichte besucht alle vier Dörfer, drei Stadtgebiete und alle zwölf benannten Außenorte. 49 Schritte verbinden eine Funkspur zu Noah mit der Suche nach Kühltransport W-07, Archivprotokoll und Transportbehälter. Der erste Hausbau gehört vor dem Aufbruch zur Einführung; die übrigen Häuser sind freiwillige Zwischenstationen. Details und Prüfumfang stehen in `docs/campaign-route.md`.
+
 ## Erweiterung
 
 1. Region oder POI in `regionPlan.ts` definieren, mit Name, Charakter und Risiko.
@@ -48,13 +52,17 @@ Zombies entstehen in der Nähe des Spielers und verschwinden in großer Entfernu
 
 ## Prüfungen
 
+Die Landschaft ergänzt mittlere Hügelrücken und kleine Senken zwischen den äußeren Höhenzügen. Höhere Lagen bekommen breitere Bachmulden. Straßen gehen stetig in die Ufer über; Fundamenthöhen berücksichtigen das Talprofil, damit keine künstlichen Sockel über dem Bach entstehen. Dorfkerne, Arbeitsflächen und Unterschlüpfe bleiben eben. Das durchgehend zwei Meter feine Gelände teilt sich zwischengespeicherte Eckhöhen; Figuren und Objektfüße verwenden außerhalb der erhaltenen Enklave die Dreiecksinterpolation des sichtbaren Bodens. Die Fernsicht reicht bis 1.000 Meter, damit Höhenzüge im Dunst auslaufen.
+
+`app/regionNature.ts` verteilt Felsen, Büsche, Farne und Grasbüschel in lockeren, deterministischen Gruppen. Ganze Standflächen werden auf Neigung und Unebenheiten geprüft. Die tatsächlichen Gebäude-, Requisiten- und Kollisionsflächen sowie Ressourcen und Missionspunkte sind ausgeschlossen. Naturobjekte folgen der lokalen Bodenneigung; Felsen erhalten eigene Kollision. Gemeinsame Geometrie, Instancing und getrennte Sichtweiten begrenzen den Aufwand. `npm run check:nature` prüft Relief, komplette Fundamente und Schutzbereiche, Abstände, alle transformierten Naturmodelle gegen den Boden, Geländedreiecke und Ausblendung. `scripts/browser-nature.js` prüft vier Tagesansichten und die Bodenhöhe bei realer Tastaturbewegung.
+
 Die Regionsprüfung kontrolliert den kompletten Straßen-Graphen, Zufahrten aller POIs, alle neuen Straßenmittellinien, überlappungsfreie Parzellen, trockene Fundamente, begehbare Türen, alle regionalen Vorräte, Baumabstände, Brückendecks inklusive Begleiterwegfindung sowie korrekte Abstandsabfragen an negativen Koordinaten. Ein kompletter Szenenaufbau prüft gültige Geometrie, Instancing und Ausblendung.
 
 Die Browserprüfung nutzt den tatsächlich laufenden WebGL-Renderer, betritt acht Regionen, misst Bildabstände und führt eine echte Tastaturbewegung über die Aue-Brücke durch. Die alten Asset-, Gameplay-, Innenraum-, Unterschlupf-, Grafik- und Renderprüfungen bleiben zusätzlich erforderlich. Ergebnisse hängen von Hardware, Auflösung und Browser ab; RAF-Bildabstände enthalten die Bildschirmtaktung.
 
-## Abnahme am 7. Oktober 2026
+## Abnahme der Region vor der Kampagnenerweiterung, 7. Oktober 2026
 
-Der finale Stand umfasst 122 zusätzliche Gebäude, darunter acht Hochhäuser und 26 durchsuchbare Erdgeschosse/Hallen, 2.298 regionale Bäume, sechs Brücken und 68 neue Vorratspunkte. Alle Regionsprüfungen, die bisherigen sieben statischen Prüfgruppen, TypeScript, ESLint und der Produktionsbuild bestehen. Im Browser bestehen Dialog/Karte, Kampf/Waffen, alle 24 Kampagnenschritte bis zur gewonnenen Endverteidigung sowie Bau, Schlaf und Respawn in allen vier bestehenden Unterschlüpfen.
+Diese Regionsabnahme umfasste 122 zusätzliche Gebäude, darunter acht Hochhäuser und 26 durchsuchbare Erdgeschosse/Hallen, 2.298 regionale Bäume, sechs Brücken und 68 neue Vorratspunkte. Alle Regionsprüfungen, die bisherigen sieben statischen Prüfgruppen, TypeScript, ESLint und der Produktionsbuild bestanden. Im Browser bestanden Dialog/Karte, Kampf/Waffen, die damalige Kampagne bis zur gewonnenen Endverteidigung sowie Bau, Schlaf und Respawn in den vier bestehenden Unterschlüpfen. Die spätere Erweiterung ergänzt 13 regionale Safehouses und eine 49-Schritt-Kampagne; durch freigehaltene Hausflächen bleiben jetzt 2.293 regionale Bäume.
 
 Der WebGL-Stabilitätstest besteht mit 30 echten Gegnern: keine schwarzen Bildproben, keine spontanen Kontextverluste, unveränderte 53 Shaderprogramme bei Raum-/Tag-/Nachtwechseln und Freigabe aller 30 Gegner-Animationstexturen beim Neustart. Vier Fenstergrößen sowie die Wiederherstellung nach absichtlich ausgelöstem Kontextverlust funktionieren. Im Belastungstest liegen Median/P95 bei 16,7/33,3 ms; die adaptive Auflösung reduziert den Renderpuffer dabei auf 1.180 × 664 Pixel.
 

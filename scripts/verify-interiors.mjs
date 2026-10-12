@@ -5,12 +5,13 @@ import { INTERIOR_PLACES, INTERIOR_LOOT, INTERIOR_DISCOVERIES } from '../app/int
 import { REFUGES, refugeWalls, footprintsOverlap } from '../app/environment.ts';
 import { segmentBlocked } from '../app/world.ts';
 import { findPath } from '../app/survival.ts';
+import { REGIONAL_SHELTERS } from '../app/shelterSites.ts';
 
 const scene = new Scene(), obstacles = [];
 const city = buildCity(scene, () => .15, obstacles, () => new Mesh(new BoxGeometry(), new MeshBasicMaterial()));
 obstacles.push(...REFUGES.flatMap(refugeWalls));
 assert.equal(INTERIOR_PLACES.length, 8);
-assert.equal(CITY_PLACES.length, 21);
+assert.equal(CITY_PLACES.length, 21+REGIONAL_SHELTERS.length);
 assert.equal(new Set(CITY_PLACES.map(p => p.id)).size, CITY_PLACES.length);
 assert.equal(INTERIOR_LOOT.length, 24);
 assert.equal(INTERIOR_DISCOVERIES.length, 8);

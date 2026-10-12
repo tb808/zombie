@@ -50,4 +50,4 @@ assert(!uvProtectedAt(time(12),houses,-77,5),'Daytime protection comes from real
 entrances.update(time(12),houses,.016);assert(entrances.gates.every(g=>!g.uv&&g.light.intensity===0));
 entrances.reset();assert(entrances.gates.every(g=>!g.open));
 entrances.update(time(22),newHouses(),.016);assert(!entrances.gates.find(g=>g.id==='lodge').uv,'Restart clears installed UV');
-console.log('PASS: dusk/night difficulty, zombie variants, perception, eight working gates, physical collisions, conditional UV and clean reset.');
+console.log('PASS: dusk/night difficulty, zombie variants, perception, 22 working gates, physical collisions, conditional UV and clean reset.');

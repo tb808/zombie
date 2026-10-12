@@ -5,6 +5,7 @@ import { REFUGES } from './environment.ts';
 import { LOOT, NOTES } from './world.ts';
 import { BRIDGES, PARKED_CARS, REGION_LOOT, REGION_POIS, REGION_SIGNS, ROAD_LINES, STRUCTURES, TREES, SpatialIndex, lineDistance, nearestOn, overlaps, roadClearance, seeded, waterClearance, zoneAt, type LineSegment } from './regionPlan.ts';
 import { terrainHeight } from './regionTerrain.ts';
+import { CAMPAIGN } from './campaign.ts';
 
 export type PropKind = 'lamp'|'villageLamp'|'brokenLamp'|'bench'|'bin'|'tippedBin'|'mailbox'|'cabinet'|'hydrant'|'bollard'|'trafficLight'|'sign'|'streetSign'|'busStop'|'shelter'|'advert'|'bikeRack'|'bicycle'|'luggage'|'bag'|'litter'|'pallet'|'crate'|'barrel'|'dumpster'|'cone'|'barrier'|'container'|'cableReel'|'pipes'|'forklift'|'tractor'|'trailer'|'car'|'wreck'|'policeCar'|'ambulance'|'fireTruck'|'van'|'truck'|'bus'|'table'|'chair'|'fallenChair'|'umbrella'|'cart'|'cartShelter'|'hedge'|'planter'|'smallTree'|'weeds'|'shed'|'logs'|'well'|'swing'|'slide'|'priceSign';
 type Definition = { w:number;d:number;solid:boolean;distance:number };
@@ -29,6 +30,7 @@ export const SETTLEMENT_ROADS:LineSegment[]=[...ROAD_LINES.flatMap(r=>r.samples.
 export function dressingRoadClearance(x:number,z:number){return Math.min(roadClearance(x,z),...legacyRoads.map(r=>lineDistance({x,z},r)-r.width/2));}
 const entrancePads=STRUCTURES.filter(b=>b.enterable).flatMap(b=>[-1,1].map(side=>({x:b.x,z:b.z+side*(b.depth/2+3),hx:2.4,hz:3.4})));
 export const DRESSING_RESERVED:Point[]=[...REGION_LOOT,...CITY_LOOT,...HOUSE_LOOT,...LOOT,...NOTES,...DISCOVERIES,...CITY_NPCS,
+  ...CAMPAIGN,
   {x:-61,z:-35},{x:-53,z:-37},{x:-49,z:-34},{x:-19,z:-4},{x:17,z:15},{x:48,z:23},{x:66,z:-25},{x:120,z:90},
 ];
 function fixedFootprints():Obstacle[]{return [
@@ -134,7 +136,8 @@ export function planSettlementDetail(extraFootprints:readonly Obstacle[]=[],extr
   };
   const findSite=(x:number,z:number,hx:number,hz:number)=>{
     for(let i=0;i<160;i++){const angle=i*2.399,r=i?5+Math.sqrt(i)*4:0,p={x:x+Math.cos(angle)*r,z:z+Math.sin(angle)*r,hx,hz};
-      if(!occupied.query(p.x,p.z,hx+1,hz+1).some(o=>overlaps(p,o,1))&&waterClearance(p.x,p.z)>Math.hypot(hx,hz)+3&&dressingRoadClearance(p.x,p.z)>Math.hypot(hx,hz)+1&&!reserved.some(q=>Math.abs(q.x-p.x)<hx+3&&Math.abs(q.z-p.z)<hz+3))return p;
+      const y=terrainHeight(p.x,p.z),level=[[-hx,-hz],[hx,-hz],[-hx,hz],[hx,hz],[0,-hz],[0,hz],[-hx,0],[hx,0]].every(([dx,dz])=>Math.abs(terrainHeight(p.x+dx,p.z+dz)-y)<.18);
+      if(level&&!occupied.query(p.x,p.z,hx+1,hz+1).some(o=>overlaps(p,o,1))&&waterClearance(p.x,p.z)>Math.hypot(hx,hz)+3&&dressingRoadClearance(p.x,p.z)>Math.hypot(hx,hz)+1&&!reserved.some(q=>Math.abs(q.x-p.x)<hx+3&&Math.abs(q.z-p.z)<hz+3))return p;
     }return null;
   };
   const plannedScenes:[string,string,string,number,number,string,readonly [PropKind,number,number,number?][]][]=[

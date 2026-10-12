@@ -3,8 +3,23 @@ async(page)=>{
   const check=(value,message)=>{if(!value)throw Error(message);};
   await page.waitForFunction(()=>window.__nachtwache&&!document.querySelector('.start-actions .secondary')?.disabled);
   await page.evaluate(()=>{const g=window.__nachtwache;g.start();g.resume();});
-  const houses=[['lodge',-77,5],['fire',120,30],['housing',181,30],['farm',-113,69]];
+  const houses=await page.evaluate(()=>window.__nachtwache.campaign().houses.map(h=>[h.id,h.x,h.z]));
   for(const [id,x,z] of houses){
+    const clearInterior=async()=>{
+      for(let i=0;i<30;i++){
+        const s=await page.evaluate(()=>window.__nachtwache.state());
+        check(s.health>0,`${id}: player survived construction`);
+        if(!s.enemies.some(e=>e.alive&&Math.abs(e.x-x)<7.4&&Math.abs(e.z-z)<6.9))return;
+        await page.evaluate(({x,z})=>{
+          const g=window.__nachtwache;g.resume();g.teleport(x,z+1);
+          const s=g.state();if(s.health<70&&s.inventory.medkit)g.consume('medkit');
+          if(s.ammo<=0){g.reload();return;}
+          const e=s.enemies.find(e=>e.alive&&Math.abs(e.x-x)<7.4&&Math.abs(e.z-z)<6.9);if(e){g.aim(...e.head);g.setAiming(true);g.shoot();}
+        },{x,z});
+        await page.waitForTimeout(250);
+      }
+      throw Error(`${id}: interior remains occupied`);
+    };
     await page.evaluate(({x,z})=>{
       const g=window.__nachtwache;g.resume();
       for(const [px,pz] of [[x-4,z+10],[x,z+12],[x+3,z+2]]){g.teleport(px,pz);g.interact();}
@@ -13,11 +28,19 @@ async(page)=>{
     },{x,z});
     check(await page.getByRole('button',{name:'UNTERSCHLUPF AKTIVIEREN',exact:true}).isDisabled(),'Incomplete houses cannot be activated');
     await page.getByRole('button',{name:'ZURÜCK INS SPIEL · ESC',exact:true}).click();
-    await page.evaluate(({x,z})=>{
+    await clearInterior();
+    await page.evaluate(({id,x,z})=>{
       const g=window.__nachtwache;g.resume();
-      for(const [px,pz] of [[x-4.6,z-5.7],[x+4.6,z-5.7],[x-4.6,z+5.7],[x+4.6,z+5.7],[x,z-5.7],[x,z+5.7]]){g.teleport(px,pz);g.interact();}
+      const points=[[-4.6,-5.7],[4.6,-5.7],[-4.6,5.7],[4.6,5.7],[0,-5.7],[0,5.7]];
+      for(let i=0;i<points.length;i++){
+        g.teleport(x+points[i][0],z+points[i][1]);
+        for(let retry=0;retry<8;retry++){
+          const h=g.state().houses[id];if(i<4?h.windows[i]:h.reinforced[i-4]&&h.closed[i-4])break;
+          g.interact(); // Nearby supplies can be collected before the window action.
+        }
+      }
       g.teleport(x,z+1);g.interact();
-    },{x,z});
+    },{id,x,z});
     if(id==='lodge'){
       await page.evaluate(({x,z})=>window.__nachtwache.spawn(x+2,z+3,'walker'),{x,z});
       await page.getByRole('button',{name:'UNTERSCHLUPF AKTIVIEREN',exact:true}).click();
@@ -39,13 +62,15 @@ async(page)=>{
     check(state.protectedHouse===id,'Activated, closed houses protect the player');
     check(state.houses[id].windows.every(Boolean)&&state.houses[id].closed.every(Boolean),'All barricades retain state');
     check(await page.getByRole('button',{name:'BIS 06 UHR SCHLAFEN',exact:true}).isDisabled(),'Daytime sleeping is blocked');
-    if(id==='lodge'){
+    {
       await page.getByRole('button',{name:'BIS 19 UHR WARTEN',exact:true}).click();
       check(await page.getByRole('button',{name:'BIS 06 UHR SCHLAFEN',exact:true}).isEnabled(),'Waiting reaches night');
-      await page.screenshot({path:'output/playwright/safehouse-night.png'});
+      if(id==='lodge')await page.screenshot({path:'output/playwright/safehouse-night.png'});
+      const night=await page.evaluate(()=>window.__nachtwache.environment());
+      check(night.gates.find(g=>g.id===id).uv,`${id}: claimed shelter has UV at night`);
       await page.getByRole('button',{name:'BIS 06 UHR SCHLAFEN',exact:true}).click();
       state=await page.evaluate(()=>window.__nachtwache.state());
-      check(state.elapsed===1260,'Sleep reaches next morning');
+      check(Math.abs((await page.evaluate(()=>window.__nachtwache.environment())).hours-6)<.001,`${id}: sleep reaches next morning`);
     }
     await page.getByRole('button',{name:'ZURÜCK INS SPIEL · ESC',exact:true}).click();
     await page.waitForFunction(()=>window.__nachtwache.state().invulnerable<=0);
@@ -72,5 +97,5 @@ async(page)=>{
   await page.evaluate(()=>{const g=window.__nachtwache;g.start();g.pause();});
   const reset=await page.evaluate(()=>window.__nachtwache.state());
   check(reset.respawn===null&&Object.values(reset.houses).every(h=>!h.claimed&&!h.bed&&h.windows.every(v=>!v)),'Restart clears all player shelters');
-  return {passed:['four buildable houses','incomplete activation blocked','clear interior required','construction costs','daytime sleep blocked','wait until night','next-day morning','door safety','four respawn locations','quest preservation','no supply or ammo duplication','clean reset']};
+  return {houses:houses.length,passed:['all buildable houses','incomplete activation blocked','clear interior required','construction costs','daytime sleep blocked','wait until night','next-day morning','door safety','all respawn locations','quest preservation','no supply or ammo duplication','clean reset']};
 }

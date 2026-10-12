@@ -1,5 +1,5 @@
 import { CAMPAIGN, type CampaignId } from './campaign.ts';
-import { SAFEHOUSES, type HouseState } from './safehouses.ts';
+import { SAFEHOUSES, newHouses, type HouseState } from './safehouses.ts';
 import { WORLD, WEAPONS, ZOMBIES, type WeaponKind, type ZombieKind, type Brain, type Stimulus } from './survival.ts';
 import { ITEMS, type Inventory } from './world.ts';
 
@@ -9,13 +9,13 @@ export type PlayerProgress = {
   boosted:number;repaired:boolean;thirst:number;infection:number;protection:number;powerQuest:number;benQuest:number;
   evidence:string[];visited:string[];discovered:number[];keycard:boolean;elapsed:number;hasMap:boolean;
   weapon:WeaponKind;arsenal:Record<WeaponKind,{owned:boolean;ammo:number;reserve:number}>;
-  houses:Record<string,HouseState>;respawn:string|null;learned:string[];
+  houses:Record<string,HouseState>;respawn:string|null;learned:string[];talkedTo:string[];
 };
 export type SavedConversation = {speaker:string;lines:string[];index:number;complete:CampaignId|null};
-export const PROGRESS_KEYS = ['health','stamina','stage','kills','timer','battery','inventory','boosted','repaired','thirst','infection','protection','powerQuest','benQuest','evidence','visited','discovered','keycard','elapsed','hasMap','weapon','arsenal','houses','respawn','learned'] as const;
+export const PROGRESS_KEYS = ['health','stamina','stage','kills','timer','battery','inventory','boosted','repaired','thirst','infection','protection','powerQuest','benQuest','evidence','visited','discovered','keycard','elapsed','hasMap','weapon','arsenal','houses','respawn','learned','talkedTo'] as const;
 export const pickProgress = (p:PlayerProgress):PlayerProgress => Object.fromEntries(PROGRESS_KEYS.map(key=>[key,p[key]])) as PlayerProgress;
 export type GameSave = {
-  version:1;savedAt:number;mission:CampaignId;phase:'playing'|'dead'|'won';progress:PlayerProgress;
+  version:1;revision:2;savedAt:number;mission:CampaignId;phase:'playing'|'dead'|'won';progress:PlayerProgress;
   player:{x:number;z:number;yaw:number;pitch:number};noah:{x:number;z:number};
   loot:{key:string;remaining:number}[];doors:string[];gates:string[];
   enemies:{kind:ZombieKind;health:number;x:number;z:number;yaw:number;brain:Brain}[];
@@ -37,6 +37,26 @@ export function parseSave(raw:string|null,manifest:Manifest):GameSave|null {
   if(!raw)return null;
   try {
     const s:unknown=JSON.parse(raw);if(!record(s)||s.version!==1||!number(s.savedAt,0,Number.MAX_SAFE_INTEGER))return null;
+    // Preserve the previous 26-step world's progress and spent supplies. New
+    // houses start unfinished; unchanged pickups match by position, not index.
+    if(s.revision===undefined){
+      if(!record(s.progress)||!record(s.progress.houses)||!Array.isArray(s.loot)||s.loot.length!==manifest.loot.length-52)return null;
+      const legacyProgress=s.progress,legacyHouses=s.progress.houses;
+      const legacyIds=['lodge','fire','housing','farm'];
+      if(!legacyIds.every(id=>record(legacyHouses[id])))return null;
+      const old=new Map<string,number[]>(),keys=new Set<string>();
+      for(const entry of s.loot){
+        if(!record(entry)||typeof entry.key!=='string'||!integer(entry.remaining,0,1e6))return null;
+        const pieces=entry.key.split(':');if(pieces.length!==4||!['ammo','shells','rifleAmmo',...Object.keys(ITEMS)].includes(pieces[0])||!number(Number(pieces[1]),WORLD.minX,WORLD.maxX)||!number(Number(pieces[2]),WORLD.minZ,WORLD.maxZ)||!integer(Number(pieces[3])))return null;
+        if(keys.has(entry.key))return null;keys.add(entry.key);
+        const location=pieces.slice(0,3).join(':');if(!old.has(location))old.set(location,[]);old.get(location)!.push(entry.remaining as number);
+      }
+      const relocated=['medkit:-60:-36','ration:-57:-39','flare:-50:-34'];
+      s.loot=manifest.loot.map((entry,i)=>({key:entry.key,remaining:old.get(entry.key.split(':').slice(0,3).join(':'))?.shift()??(i<3?old.get(relocated[i])?.shift():undefined)??entry.count}));
+      legacyProgress.houses={...newHouses(),...legacyHouses};
+      legacyProgress.stage=CAMPAIGN.findIndex(m=>m.id===s.mission);s.revision=2;
+    }
+    if(s.revision!==2)return null;
     const p=s.progress;if(!record(p)||!integer(p.stage,0,CAMPAIGN.length-1)||s.mission!==CAMPAIGN[p.stage as number].id)return null;
     if(!['playing','dead','won'].includes(String(s.phase)))return null;
     for(const key of ['health','stamina','battery','thirst','infection','protection'])if(!number(p[key],0,100))return null;
@@ -44,6 +64,13 @@ export function parseSave(raw:string|null,manifest:Manifest):GameSave|null {
     if(!integer(p.kills)||!integer(p.powerQuest,0,3)||!integer(p.benQuest,0,4))return null;
     for(const key of ['repaired','keycard','hasMap'])if(typeof p[key]!=='boolean')return null;
     if(!strings(p.evidence)||!strings(p.visited)||!strings(p.learned))return null;
+    // Older saves predate contact tracking. Recover contacts evidenced by quests.
+    if(p.talkedTo===undefined)p.talkedTo=[
+      ...(p.hasMap?['mara']:[]),...(p.learned.includes('noah')?['noah']:[]),
+      ...(Number(p.powerQuest)>0?['lenz']:[]),...(Number(p.benQuest)>0||p.learned.includes('weber')?['weber']:[]),
+      ...(Number(p.benQuest)>=3||p.evidence.includes('ben')?['ben']:[]),
+    ];
+    if(!strings(p.talkedTo,100))return null;
     if(!Array.isArray(p.discovered)||p.discovered.some(n=>!integer(n,0,4)))return null;
     if(!record(p.inventory)||!record(p.arsenal)||!record(p.houses))return null;
     for(const [kind,item] of Object.entries(ITEMS))if(!integer(p.inventory[kind],0,item.limit))return null;

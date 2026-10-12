@@ -6,6 +6,7 @@ import { INTERIOR_PLACES, INTERIOR_LOOT, INTERIOR_DISCOVERIES, buildInteriors, t
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { surfaceMaterial, surfaceForColor, tintGeometry, type SurfaceKind } from './surfaces.ts';
 import { detailedCar } from './naturalAssets.ts';
+import { REGIONAL_SHELTERS, START_POINTS } from './shelterSites.ts';
 
 export type PlaceKind = 'hospital' | 'police' | 'market' | 'workshop' | 'shelter' | 'military' | 'station' | 'fire' | 'housing' | 'lab' | 'farm' | 'camp' | InteriorKind;
 export const CITY_PLACES: { id: string; name: string; kind: PlaceKind; x: number; z: number; color: number; story: string; hx?: number; hz?: number }[] = [
@@ -23,6 +24,7 @@ export const CITY_PLACES: { id: string; name: string; kind: PlaceKind; x: number
   { id:'farm', name:'HOF BIRKENRAIN',kind:'farm',x:-113,z:69,color:0x8b6a4d,story:'Der Brunnen ist sauber. Frische Fußspuren führen zum Zeltlager.' },
   { id:'camp', name:'WALDCAMP · EVAKUIERTE',kind:'camp',x:-121,z:119,color:0x727b53,story:'Hier endete Bens Flucht aus der Klinik.' },
   ...INTERIOR_PLACES,
+  ...REGIONAL_SHELTERS.map(h=>({id:h.id,name:h.name.toUpperCase(),kind:'housing' as const,x:h.x,z:h.z,color:0x827359,story:'Einnehmbarer Unterschlupf: Innenraum räumen, Fenster vernageln, Türen verstärken und den Schlafplatz aktivieren.'})),
 ];
 export const CITY_ROADS = [
   {x:92,z:-20,w:9,h:260},{x:151,z:-20,w:10,h:270},{x:212,z:-20,w:9,h:260},
@@ -56,7 +58,7 @@ export const CITY_NPCS = [
   { id:'lenz',name:'LENZ · MECHANIKER',x:120,z:85,skin:'survivorMaleB',color:0xe4ae64 },
   { id:'weber',name:'DR. WEBER',x:114,z:-62,skin:'survivorFemaleA',color:0x8ecbda },
   { id:'ben',name:'BEN · EVAKUIERTER',x:-120,z:124,skin:'survivorMaleB',color:0xbcd99a },
-  { id:'ranger-guard',name:'JONAS · RANGER',x:-55,z:-41,skin:'survivorMaleB',color:0xc8d5b1 },
+  { id:'ranger-guard',name:'JONAS · RANGER',...START_POINTS.jonas,skin:'survivorMaleB',color:0xc8d5b1 },
   { id:'school-guard',name:'ANJA · WACHE',x:117,z:89,skin:'survivorFemaleA',color:0xc8d5b1 },
   { id:'school-resident',name:'PAUL · EVAKUIERTER',x:123,z:89,skin:'survivorMaleB',color:0xc8d5b1 },
   { id:'camp-guard',name:'NORA · RANGERIN',x:-117,z:125,skin:'survivorFemaleA',color:0xc8d5b1 },

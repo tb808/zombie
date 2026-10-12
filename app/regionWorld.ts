@@ -4,7 +4,8 @@ import { surfaceMaterial, tintGeometry, type SurfaceKind } from './surfaces.ts';
 import { detailedCar, instancedTreeParts } from './naturalAssets.ts';
 import type { Obstacle, Point } from './survival.ts';
 import { BRIDGES, FIELDS, LAKES, REGION_BOUNDS, REGION_LOOT, REGION_POIS, ROAD_LINES, STRUCTURES, TREES, WATER_LINES, PARKED_CARS, SpatialIndex, fieldAt, forestDensity, inLegacy, overlaps, seeded, waterBlocked, waterClearance, roadClearance, type Structure } from './regionPlan.ts';
-import { groundHeight, terrainHeight } from './regionTerrain.ts';
+import { TERRAIN_STEP, terrainVertexHeight, terrainHeight } from './regionTerrain.ts';
+import { SITE_RESERVATIONS } from './shelterSites.ts';
 
 const CHUNK = 100;
 type Chunk = { group:THREE.Group; detail:THREE.Group; distant:THREE.Group; terrain:THREE.Group; trees:THREE.Group[]; x:number;z:number;batches:Map<THREE.Material,THREE.BufferGeometry[]>;farBatches:Map<THREE.Material,THREE.BufferGeometry[]> };
@@ -53,16 +54,19 @@ export function buildRegionWorld(scene:THREE.Scene) {
   const terrainMaterial=surfaceMaterial('soil',0xffffff,{vertexColors:true,roughness:.98});
   const color=new THREE.Color();
   for(let z=REGION_BOUNDS.minZ;z<REGION_BOUNDS.maxZ;z+=CHUNK)for(let x=REGION_BOUNDS.minX;x<REGION_BOUNDS.maxX;x+=CHUNK){
-    const chunk=at(x+50,z+50),divisions=inLegacy(x+50,z+50,60)?50:20,positions:number[]=[],colors:number[]=[],indices:number[]=[];
+    const chunk=at(x+50,z+50),divisions=CHUNK/TERRAIN_STEP,positions:number[]=[],colors:number[]=[],indices:number[]=[];
     for(let iz=0;iz<=divisions;iz++)for(let ix=0;ix<=divisions;ix++){
-      const wx=x+ix*CHUNK/divisions,wz=z+iz*CHUNK/divisions,y=groundHeight(wx,wz),field=fieldAt(wx,wz),forest=forestDensity(wx,wz);
+      const wx=x+ix*CHUNK/divisions,wz=z+iz*CHUNK/divisions,y=terrainVertexHeight(wx,wz),field=fieldAt(wx,wz),forest=forestDensity(wx,wz);
       positions.push(wx,y,wz);color.setHex(field?[0x97916a,0x8b9064,0xa99c75][field.crop]:forest>.3?0x73806a:0x949f7b);
       if(wx>78&&wx<670&&wz>-390&&wz<270)color.lerp(new THREE.Color(0xa7a59b),.65);
       if(waterClearance(wx,wz)<7)color.setHex(0x858775);
-      color.offsetHSL(0,0,Math.sin(wx*.09+wz*.07)*.025);colors.push(color.r,color.g,color.b);
+      const meadow=Math.sin(wx*.023+Math.sin(wz*.018))*Math.cos(wz*.031);
+      color.offsetHSL(meadow*.015,meadow*.045,meadow*.045+Math.sin(wx*.09+wz*.07)*.018);colors.push(color.r,color.g,color.b);
     }
     for(let iz=0;iz<divisions;iz++)for(let ix=0;ix<divisions;ix++){const a=iz*(divisions+1)+ix,b=a+1,c=a+divisions+1,d=c+1;indices.push(a,c,b,b,c,d);}
     const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));geometry.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));geometry.setIndex(indices);geometry.computeVertexNormals();
+    const normals=geometry.getAttribute('normal'),tints=geometry.getAttribute('color'),exposed=new THREE.Color(0xa29a86);
+    for(let i=0;i<normals.count;i++){const steep=Math.max(0,(.94-normals.getY(i))*3);if(steep>0){color.fromBufferAttribute(tints,i).lerp(exposed,Math.min(.8,steep));tints.setXYZ(i,color.r,color.g,color.b);}}
     const mesh=new THREE.Mesh(geometry,terrainMaterial);mesh.receiveShadow=true;chunk.terrain.add(mesh);
   }
   // Continuous strips follow the shared design paths, with a shared vertex at
@@ -72,8 +76,14 @@ export function buildRegionWorld(scene:THREE.Scene) {
       const a=samples[i],b=samples[i+1],before=samples[Math.max(0,i-1)],after=samples[Math.min(samples.length-1,i+2)];
       const normal=(p:Point,q:Point)=>{const d=Math.hypot(q.x-p.x,q.z-p.z),w=water?width*(.85+.22*Math.sin((i+waterOffset)*.14)):width;return {x:(q.z-p.z)/d*w/2,z:-(q.x-p.x)/d*w/2};};
       const na=normal(before,b),nb=normal(a,after),corners=[[a.x-na.x,a.z-na.z],[a.x+na.x,a.z+na.z],[b.x-nb.x,b.z-nb.z],[b.x+nb.x,b.z+nb.z]];
-      const vertices=corners.flatMap(([x,z])=>[x,water?.22:terrainHeight(x,z)+lift,z]);
-      const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));geometry.setAttribute('uv',new THREE.Float32BufferAttribute([0,0,1,0,0,1,1,1],2));geometry.setIndex([0,2,1,1,2,3]);geometry.computeVertexNormals();
+      const along=water?1:Math.ceil(Math.hypot(b.x-a.x,b.z-a.z)/1),across=water?1:Math.ceil(width/1),vertices:number[]=[],uvs:number[]=[],indices:number[]=[];
+      for(let iz=0;iz<=along;iz++)for(let ix=0;ix<=across;ix++){
+        const t=iz/along,u=ix/across,lx=corners[0][0]+(corners[2][0]-corners[0][0])*t,lz=corners[0][1]+(corners[2][1]-corners[0][1])*t;
+        const rx=corners[1][0]+(corners[3][0]-corners[1][0])*t,rz=corners[1][1]+(corners[3][1]-corners[1][1])*t,x=lx+(rx-lx)*u,z=lz+(rz-lz)*u;
+        vertices.push(x,water?.22:terrainHeight(x,z)+lift,z);uvs.push(u,t);
+      }
+      for(let iz=0;iz<along;iz++)for(let ix=0;ix<across;ix++){const a=iz*(across+1)+ix,b=a+1,c=a+across+1,d=c+1;indices.push(a,c,b,b,c,d);}
+      const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));geometry.setAttribute('uv',new THREE.Float32BufferAttribute(uvs,2));geometry.setIndex(indices);geometry.computeVertexNormals();
       const chunk=at((a.x+b.x)/2,(a.z+b.z)/2),g=geometry.toNonIndexed();geometry.dispose();if(!chunk.batches.has(material))chunk.batches.set(material,[]);chunk.batches.get(material)!.push(g);
     }
   };
@@ -140,7 +150,9 @@ export function buildRegionWorld(scene:THREE.Scene) {
   for(const f of FIELDS){
     for(let z=f.z-f.hz+3;z<f.z+f.hz;z+=5){
       for(let x=f.x-f.hx+3;x<f.x+f.hx;x+=8){if(waterClearance(x,z)<8||roadClearance(x,z)<5||STRUCTURES.some(b=>overlaps({x,z,hx:4,hz:1},b,3)))continue;
-        const geometry=new THREE.PlaneGeometry(7.5,.5);geometry.rotateX(-Math.PI/2);geometry.translate(x,terrainHeight(x,z)+.025,z);const g=tintGeometry(geometry,[0x777956,0x9c9467,0x786d54][f.crop]);geometry.dispose();const chunk=at(x,z),m=mat('soil');if(!chunk.batches.has(m))chunk.batches.set(m,[]);chunk.batches.get(m)!.push(g.toNonIndexed());g.dispose();
+        const geometry=new THREE.PlaneGeometry(7.5,.5,8,1);geometry.rotateX(-Math.PI/2);geometry.translate(x,0,z);
+        const vertices=geometry.getAttribute('position');for(let i=0;i<vertices.count;i++)vertices.setY(i,terrainHeight(vertices.getX(i),vertices.getZ(i))+.035);geometry.computeVertexNormals();
+        const g=tintGeometry(geometry,[0x777956,0x9c9467,0x786d54][f.crop]);geometry.dispose();const chunk=at(x,z),m=mat('soil');if(!chunk.batches.has(m))chunk.batches.set(m,[]);chunk.batches.get(m)!.push(g.toNonIndexed());g.dispose();
       }
     }
   }
@@ -151,12 +163,16 @@ export function buildRegionWorld(scene:THREE.Scene) {
   fortWalls().forEach(fence);
   // Distinct landmarks and functional yards, placed on their actual access spurs.
   for(const p of REGION_POIS){const y=terrainHeight(p.x,p.z);
-    if(p.kind==='farm')for(const offset of [-14,-6]){piece(p.x+offset,y+5,p.z-18,2.4,10,2.4,0x9da39b,'metal',0,cylinder);piece(p.x+offset,y+10.4,p.z-18,2.5,1,2.5,0x6b7670,'metal',0,cone);}
+    if(p.kind==='farm')for(const offset of [-14,-6]){
+      const x=p.x+offset,z=p.z-18;
+      if(SITE_RESERVATIONS.some(s=>overlaps({x,z,hx:2.6,hz:2.6},s,1)))continue;
+      const base=terrainHeight(x,z);piece(x,base+5,z,2.4,10,2.4,0x9da39b,'metal',0,cylinder);piece(x,base+10.4,z,2.5,1,2.5,0x6b7670,'metal',0,cone);
+    }
     if(p.kind==='gas'||p.kind==='rest'){
       piece(p.x,y+4,p.z-12,22,.4,12,0x8d8b77,'metal');for(const side of [-1,1])piece(p.x+side*9,y+2,p.z-12,.25,4,.25,0x6e7978,'metal');
       for(const offset of [-5,5])piece(p.x+offset,y+.75,p.z-12,.8,1.5,.6,0x9b7665,'metal');
     }
-    if(p.kind==='radar'){piece(p.x+10,y+19,p.z+5,.7,38,.7,0x8f9993,'metal',0,cylinder,true);piece(p.x+10,y+35,p.z+5,7,.5,7,0xa4aaa4,'metal',0,cylinder,true);}
+    if(p.kind==='radar'){const base=terrainHeight(p.x+10,p.z+5);piece(p.x+10,base+19,p.z+5,.7,38,.7,0x8f9993,'metal',0,cylinder,true);piece(p.x+10,base+35,p.z+5,7,.5,7,0xa4aaa4,'metal',0,cylinder,true);}
     if(p.kind==='quarry')for(let i=0;i<4;i++)piece(p.x+45+i*8,y+2+i*2,p.z-15,30,4,65-i*8,0x9a9689,'stone');
     if(p.kind==='power')for(let i=0;i<4;i++){piece(p.x-15+i*9,y+1.5,p.z-20,4,3,5,0x7e918c,'metal');piece(p.x-15+i*9,y+4,p.z-20,.6,2,.6,0xb5b4a2,'concrete',0,cylinder);}
     if(p.kind==='camp')for(const offset of [-12,12])piece(p.x+offset,y+.9,p.z+8,2,1.8,2.5,0x8a9576,'fabric',0,cone);
@@ -211,7 +227,7 @@ export function buildRegionWorld(scene:THREE.Scene) {
   cube.dispose();cylinder.dispose();cone.dispose();tinted.forEach(g=>g.dispose());
   let active=0,activeTrees=0;
   const update=(x:number,z:number)=>{active=0;activeTrees=0;
-    for(const c of chunks.values()){const d=Math.hypot(c.x-x,c.z-z),near=d<235;c.group.visible=near;c.detail.visible=d<130;c.distant.visible=d<650;c.terrain.visible=d<650;if(near)active++;
+    for(const c of chunks.values()){const d=Math.hypot(c.x-x,c.z-z),near=d<235;c.group.visible=near;c.detail.visible=d<130;c.distant.visible=d<650;c.terrain.visible=d<1080;if(near)active++;
       const level=d<65?0:d<130?1:2;
       c.trees.forEach((g,i)=>{g.visible=i===level&&d<220;if(g.visible)for(const mesh of g.children)activeTrees+=(mesh as THREE.InstancedMesh).count/2;});
     }

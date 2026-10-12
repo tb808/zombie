@@ -17,7 +17,7 @@ import { ITEMS, LOOT, NOTES, REGIONS, newInventory, segmentBlocked, type ItemKin
 import { WORLD, ZOMBIES, WEAPONS, freshArsenal, makeBrain, think, transition, findPath, type ZombieKind, type Brain, type Point, type Stimulus, type WeaponKind } from './survival';
 import { ZombieAnimator } from './zombieAnimation';
 import { CITY_PLACES, CITY_ROADS, CITY_LOOT, CITY_NPCS, DISCOVERIES, buildCity } from './city';
-import WorldMap from './WorldMap';
+import WorldMap, { type MapNpc } from './WorldMap';
 import { MARA_INTRO, subtitleLines, type Dialogue } from './dialogue';
 import { assetPath } from './assetPath';
 import { daylightAt, REFUGES, refugeAt, refugeWalls, footprintsOverlap } from './environment';
@@ -29,11 +29,14 @@ import { detailedAsset, foliageTime, createTreeDetailController } from './natura
 import { buildWorldDetail } from './worldDetail';
 import { compileScene, makeLocalLightPool, renderPixelRatio, ResolutionBudget } from './renderBudget';
 import { buildRegionWorld, regionalCollision } from './regionWorld';
+import { buildRegionNature, planRegionNature } from './regionNature';
 import { REGION_LOOT, REGION_POIS, REGION_SIGNS, ROAD_LINES, BRIDGES, STRUCTURES, WORLD_ZONES, inLegacy, riskAt, zoneAt } from './regionPlan';
 import { terrainHeight } from './regionTerrain';
 import { buildSettlementDetail } from './settlementDetail';
 import { nightThreat, roamingZombie, uvScheduled, uvProtectedAt } from './nightSurvival';
 import { buildSafehouseEntrances } from './safehouseScene';
+import { START_POINTS, START_HOUSE, START_CAMP } from './shelterSites';
+import { REGIONAL_STORY } from './regionalStory';
 const WORLD_LOOT: {kind:LootKind;x:number;z:number;count:number;y?:number}[] = [...LOOT,...CITY_LOOT,...HOUSE_LOOT,...REGION_LOOT];
 const EXPLORABLE_IDS = [...CITY_PLACES,...REGION_POIS,...WORLD_ZONES].map(p=>p.id);
 
@@ -44,7 +47,7 @@ type Hud = {
   battery: number; inventory: ReturnType<typeof newInventory>; discovered: number[]; boosted: number; repaired: boolean; x: number; z: number;
   thirst: number; infection: number; protection: number; powerQuest: number; benQuest: number; evidence: string[]; visited: string[]; keycard: boolean; elapsed: number; hasMap: boolean;
   weapon: WeaponKind; arsenal: ReturnType<typeof freshArsenal>; hit: number; damageFlash: number; aiming: boolean;
-  houses: ReturnType<typeof newHouses>; respawn: string | null; learned: string[];
+  houses: ReturnType<typeof newHouses>; respawn: string | null; learned: string[]; talkedTo: string[];
 };
 type Enemy = {
   group: THREE.Group; hitbox: THREE.Mesh; health: number;
@@ -81,16 +84,16 @@ const modelBaseHeight = (name: string) => {
   if (name.includes('tank')) return 2.8;
   return 1;
 };
-const START = new THREE.Vector3(-61, 1.68, -35);
-const INITIAL_HUD: Hud = { health: 100, ammo: 12, reserve: 48, stamina: 100, stage: 0, kills: 0, timer: 40, prompt: '', reloading: false, distance: 8, battery: 100, inventory: newInventory(), discovered: [], boosted: 0, repaired: false, x: START.x, z: START.z, weapon: 'pistol', arsenal: freshArsenal(), hit: 0, damageFlash: 0, aiming: false, thirst: 100, infection: 0, protection: 0, powerQuest: 0, benQuest: 0, evidence: [], visited: [], keycard: false, elapsed: 0, hasMap: false, houses: newHouses(), respawn: null, learned: [] };
+const START = new THREE.Vector3(START_POINTS.player.x,1.68,START_POINTS.player.z);
+const INITIAL_HUD: Hud = { health: 100, ammo: 12, reserve: 48, stamina: 100, stage: 0, kills: 0, timer: 40, prompt: '', reloading: false, distance: 8, battery: 100, inventory: newInventory(), discovered: [], boosted: 0, repaired: false, x: START.x, z: START.z, weapon: 'pistol', arsenal: freshArsenal(), hit: 0, damageFlash: 0, aiming: false, thirst: 100, infection: 0, protection: 0, powerQuest: 0, benQuest: 0, evidence: [], visited: [], keycard: false, elapsed: 0, hasMap: false, houses: newHouses(), respawn: null, learned: [], talkedTo: [] };
 
 const OBJECTIVES = CAMPAIGN.map(m => ({ ...m, target: new THREE.Vector3(m.x, 0, m.z) }));
 const DEFENSE = missionIndex('defend'), RESCUE = missionIndex('noah'), TOWER = missionIndex('tower');
 
 const STORY = {
-  fuel: ['ELIAS', ['Die Brennstoffzelle ist unbeschädigt. Damit bekommt Mara das Funkgerät wieder an.','Ich bringe sie zur Station zurück. Erst dann können wir den Konvoi erreichen.']],
-  returnFuel: ['MARA', ['Die Zelle passt. Der Generator läuft – ich schalte den Notkanal ein.','Da ist ein Hilferuf vom Friedhof. Noah steckt am Mausoleum fest. Er hat mit Dr. Weber gearbeitet und weiß, wo sie ist.','Lenke seine Verfolger mit einer Fackel ab und hol ihn raus. Ich bleibe am Funkgerät und halte den Kontakt zum Konvoi.']],
-  noah: ['NOAH', ['Du bist wegen Maras Funkspruch hier? Danke. Weber hat eine stabile Dosis gesichert; sie ist jetzt in der Notaufnahme der Oststadt.','Sie erwartet uns erst im Morgengrauen. Ich bin erschöpft, und nachts werden die Infizierten schneller. Wir brauchen vorher einen Rückzugsort.','Das Forsthaus am Dorfrand hat Baumaterial. Vernageln wir seine vier Fenster, verstärken beide Türen und richten das Bett mit einer Ration her.','Aktiviere den Schlafplatz als Unterschlupf und Respawnpunkt. Dann läuft dort nachts UV-Licht. Wir schließen die Haustüren und ruhen, bis Weber uns erwartet.']],
+  fuel: ['ELIAS', ['Die Brennstoffzelle aus dem Holzlager ist unbeschädigt. Damit bekommt Mara das Funkgerät wieder an.','Zurück zum Rangerlager in Fichtenau. Erst dann wissen wir, wer draußen noch lebt.']],
+  returnFuel: ['MARA', ['Die Zelle passt. Der Generator läuft – ich schalte den Notkanal ein.','Da ist ein abgebrochener Hilferuf von Noah. Er hat mit Dr. Weber gearbeitet. Die Aufzeichnungen vom Waldsee können zeigen, wo er jetzt ist.','Ich brauche die Nacht, um die Meldungen abzugleichen. Sichere die Forstunterkunft hier im Dorf: vier Fenster, beide Türen und ein vorbereitetes Bett.','Aktiviere den Ort als Respawnpunkt, prüfe deine Lampe und schlafe bis zum Morgen. Dann beginnt der Weg durch die Region. Weitere einnehmbare Häuser markieren wir auf der Karte.']],
+  noah: ['NOAH', ['Du bist aus Fichtenau gekommen? Danke. Weber behandelt die Evakuierten in St. Anna. Sie weiß, welche Dosis noch stabil ist.','Ihr Kühltransport W-07 ging bei der Evakuierung verloren. Bevor wir die Dosis bergen, müssen wir herausfinden, wo der geeignete Behälter gelandet ist.','Die Spur beginnt an den westlichen Höfen, führt durch Kornweiler und den Hochforst und endet in der Oststadt. Wir folgen den Übergabenotizen, nicht den Gerüchten.','Ich komme mit. Sichere unterwegs Häuser, wenn wir rasten müssen. Öffne Türen und Tore wieder, damit ich dir folgen kann.']],
   serum: ['DR. WEBER · FUNK', ['C-07. Das ist der Behälter aus meinem Lagerprotokoll. Die Dosis ist stabil – lass ihn versiegelt.','Jetzt habt ihr, wofür wir gearbeitet haben. Bringt Noah und den Behälter zum Funkturm. Mara führt den Konvoi zu euch.','Der Sender verliert Leistung. Mit drei Ersatzteilen von der Klinik und dem Turm verstärkst du das Signal, bevor ihr den Notruf startet.']],
   tower: ['MARA · FUNK', 'Sender läuft. Der Konvoi braucht vierzig Sekunden – und jedes Ding in Tannwald kennt jetzt unsere Position.'],
 } as const;
@@ -107,6 +110,7 @@ export default function Game() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const apiRef = useRef<{ start: () => void; continue: () => void; menu: () => void; resume: () => void; journal: () => void; nextDialogue: () => void; respawn: () => void; shelter: (action: 'claim' | 'respawn' | 'wait' | 'sleep') => void } | null>(null);
   const [mapBuildings, setMapBuildings] = useState<{ x: number; z: number; hx: number; hz: number }[]>([]);
+  const [mapNpcs, setMapNpcs] = useState<MapNpc[]>([]);
   const [screen, setScreen] = useState<Screen>('title');
   const [hud, setHud] = useState<Hud>(INITIAL_HUD);
   const [loaded, setLoaded] = useState(false);
@@ -146,7 +150,7 @@ export default function Game() {
     reflectionRoom.dispose();reflectionGenerator.dispose();
     scene.background = new THREE.Color(0x91bbda);
     scene.fog = new THREE.FogExp2(0x91bbda, 0.0025);
-    const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 650);
+    const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 1000);
     camera.rotation.order = 'YXZ';
     camera.position.set(START.x, terrainHeight(START.x, START.z) + 1.72, START.z);
     scene.add(camera);
@@ -292,6 +296,7 @@ export default function Game() {
     const placements: { anchor: THREE.Group; required: boolean; ready: Promise<void> }[] = [];
     let worldDetail:ReturnType<typeof buildWorldDetail>|undefined;
     let settlementDetail:Awaited<ReturnType<typeof buildSettlementDetail>>;
+    let regionNature:ReturnType<typeof buildRegionNature>|undefined;
     let treeDetail:ReturnType<typeof createTreeDetailController>|undefined;
     const place = (name: string, x: number, z: number, scale = 1, rotation = 0, y = 0, required = false) => {
       const anchor = new THREE.Group();
@@ -356,6 +361,8 @@ export default function Game() {
     building('suburban-building-type-a', -58, -28, 1.65, Math.PI, 4.8, 4.2);
     building('suburban-building-type-h', -72, -26, 1.15, Math.PI / 2, 3.8, 3.2);
     place('tent', -60, -40, 1.45, 0.5); place('campfire-pit', -54, -35, 1.2);
+    place('tent',START_POINTS.player.x-3,START_POINTS.player.z-6,1.45,.5);
+    place('campfire-pit',START_POINTS.mara.x-2,START_POINTS.mara.z+1,1.2);
     place('chest', -61, -34, 1.1, 0.4); place('resource-planks', -68, -31, 1.3, 0.2);
     for (let i = 0; i < 8; i += 1) place(i % 2 ? 'pine' : 'pine-crooked', -78 + i * 4.8, -49 - (i % 3) * 2, 1.05 + (i % 2) * 0.15, i);
 
@@ -540,7 +547,7 @@ export default function Game() {
     const npcAnchors: { mara: THREE.Group; noah: THREE.Group } = {
       mara: new THREE.Group(), noah: new THREE.Group(),
     };
-    npcAnchors.mara.position.set(-53, terrainHeight(-53, -36), -36); npcAnchors.noah.position.set(17, terrainHeight(17, 15), 15); npcAnchors.noah.visible = false;
+    npcAnchors.mara.position.set(START_POINTS.mara.x,terrainHeight(START_POINTS.mara.x,START_POINTS.mara.z),START_POINTS.mara.z); npcAnchors.noah.position.set(17, terrainHeight(17, 15), 15); npcAnchors.noah.visible = false;
     scene.add(npcAnchors.mara, npcAnchors.noah);
     const npcMixers: THREE.AnimationMixer[] = [];
     let noahAnimation: Awaited<ReturnType<typeof loadCharacter>> | undefined;
@@ -572,10 +579,11 @@ export default function Game() {
     ].map(p=>{const object=new THREE.Mesh(new THREE.BoxGeometry(p.id==='generator'?1.6:.7,p.id==='generator'?1.2:.25,.65),new THREE.MeshStandardMaterial({color:p.color,roughness:.7,metalness:.25}));object.position.set(p.x,terrainHeight(p.x,p.z)+.6,p.z);scene.add(object);return {...p,object};});
     paintedBoard('STROMNETZ OST / LENZ · SCHULHOF',125,90,'#e5c183');
     const trainingTarget = new THREE.Mesh(new THREE.BoxGeometry(1.15,1.8,.25), new THREE.MeshStandardMaterial({color:0x9b5146,roughness:.8}));
-    trainingTarget.position.set(-49,terrainHeight(-49,-34)+1.2,-34);scene.add(trainingTarget);
+    trainingTarget.position.set(START_POINTS.target.x,terrainHeight(START_POINTS.target.x,START_POINTS.target.z)+1.2,START_POINTS.target.z);scene.add(trainingTarget);
     const bullseye=new THREE.Mesh(new THREE.TorusGeometry(.33,.09,8,20),new THREE.MeshBasicMaterial({color:0xe9c997}));
     bullseye.position.z=.14;trainingTarget.add(bullseye);
-    paintedBoard('ÜBUNG / RECHTS ZIELEN · R LADEN · Q AXT',-49,-32,'#e5c183');
+    paintedBoard('ÜBUNG / RECHTS ZIELEN · R LADEN · Q AXT',START_POINTS.target.x,START_POINTS.target.z-2,'#e5c183');
+    paintedBoard('FICHTENAU / RANGERLAGER · MARA',START_POINTS.player.x-3,START_POINTS.player.z+4,'#cde4c1');
 
     const objectiveMarker = new THREE.Group(); scene.add(objectiveMarker);
     const markerBeam = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.16, 5, 8, 1, true), new THREE.MeshBasicMaterial({ color: 0xd9ff43, transparent: true, opacity: 0.1, depthWrite: false, side: THREE.DoubleSide })); markerBeam.position.y = 4;
@@ -583,10 +591,17 @@ export default function Game() {
     objectiveMarker.add(markerBeam, markerRing);
     const moveObjectiveMarker = (stage: number) => { const target = OBJECTIVES[stage].target; objectiveMarker.position.set(target.x, terrainHeight(target.x, target.z), target.z); };
 
-    const fuelBaseY = terrainHeight(-19, -4); const fuelCell = new THREE.Group(); fuelCell.position.set(-19, fuelBaseY, -4); scene.add(fuelCell);
+    const fuelBaseY = terrainHeight(START_POINTS.fuel.x,START_POINTS.fuel.z); const fuelCell = new THREE.Group(); fuelCell.position.set(START_POINTS.fuel.x,fuelBaseY,START_POINTS.fuel.z); scene.add(fuelCell);
     const fuelMesh = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.85, 0.42), new THREE.MeshStandardMaterial({ color: 0xd9ff43, emissive: 0x6c7d1e, emissiveIntensity: 1.2 })); fuelMesh.position.y = 0.55; fuelCell.add(fuelMesh);
     const serumBaseY = terrainHeight(48, 23); const serum = new THREE.Group(); serum.position.set(48, serumBaseY, 23); scene.add(serum);
     const serumMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.65, 10), new THREE.MeshStandardMaterial({ color: 0x64d9ff, emissive: 0x238fb1, emissiveIntensity: 1.8, transparent: true, opacity: 0.85 })); serumMesh.position.y = 0.7; serum.add(serumMesh);
+    const routeObjects=REGIONAL_STORY.map(report=>{
+      const action=report.id==='powerRoute'||report.id==='quarry';
+      const object=new THREE.Mesh(new THREE.BoxGeometry(action?.8:.55,action?.65:.08,action?.6:.45),new THREE.MeshStandardMaterial({color:action?0x64b9dc:0xe5ddba,emissive:action?0x125675:0x6a6042,emissiveIntensity:.6}));
+      object.position.set(report.x,terrainHeight(report.x,report.z)+.8,report.z);scene.add(object);
+      paintedBoard(report.id==='powerRoute'?'W-07 / KÜHLANSCHLUSS':report.id==='quarry'?'W-07 / KÜHLBEHÄLTER':'RETTUNGSROUTE / ÜBERGABENOTIZ',report.x+2,report.z+1,'#cde4c1');
+      return {id:report.id,object};
+    });
 
     const pickups: { object: THREE.Group; kind: LootKind; count: number; taken: boolean; baseY: number }[] = [];
     const pickup = (kind: LootKind, x: number, z: number, count: number, y = .28) => {
@@ -615,7 +630,7 @@ export default function Game() {
     const center = new THREE.Vector2(0, 0);
     let yaw = 0, pitch = 0, bob = 0, recoil = 0, muzzleTime = 0, locationTime = 0;
     let audio: AudioContext | null = null;
-    const freshRuntime = () => ({ ...INITIAL_HUD, houses:newHouses(),learned:[] as string[],inventory: newInventory(), arsenal: freshArsenal(), evidence: [] as string[], visited: [] as string[], discovered: [] as number[], active: false, spawn: 12, hudTick: 0, invulnerable: 0, reloadLeft: 0, locationName: '', noticeTime: 0, elapsed: 0, ambientTime: 8, shotCooldown: 0, eventTime: 42, eventNumber: 0 });
+    const freshRuntime = () => ({ ...INITIAL_HUD, houses:newHouses(),learned:[] as string[],talkedTo:[] as string[],inventory: newInventory(), arsenal: freshArsenal(), evidence: [] as string[], visited: [] as string[], discovered: [] as number[], active: false, spawn: 12, hudTick: 0, invulnerable: 0, reloadLeft: 0, locationName: '', noticeTime: 0, elapsed: 0, ambientTime: 8, shotCooldown: 0, eventTime: 42, eventNumber: 0 });
     let runtime = freshRuntime();
     let journalOpen = false;
     let conversation: (Dialogue & { complete:CampaignId|null }) | null = null;
@@ -626,9 +641,9 @@ export default function Game() {
     let uvWasScheduled=uvScheduled(runtime.elapsed);
     const syncCampaign = () => {
       const completed = (id:string) => {
-        if(id==='house')return runtime.houses.lodge.claimed;
+        if(id==='house')return runtime.houses[START_HOUSE].claimed;
         if(id==='keycard')return runtime.keycard;
-        if(id==='planks')return runtime.learned.includes('planks')||runtime.houses.lodge.claimed;
+        if(id==='planks')return runtime.learned.includes('planks')||runtime.houses[START_HOUSE].claimed;
         if(id==='lenz')return runtime.powerQuest>=1;
         if(id==='fuse')return runtime.powerQuest>=2 && (runtime.inventory.scrap>=2||runtime.powerQuest===3);
         if(id==='power')return runtime.powerQuest===3;
@@ -669,10 +684,16 @@ export default function Game() {
     };
     const pathBetween = (a:Point,b:Point,radius=.48) => findPath(a,b,actorObstacles(a,b),radius);
     const visibleFrom = (a: THREE.Vector3, b: THREE.Vector3) => !segmentBlocked(a.x, a.z, b.x, b.z, actorObstacles(a,b,0,true));
-    const snapshotHud = () => {setHud({ ...runtime, houses:structuredClone(runtime.houses),learned:[...runtime.learned],inventory: { ...runtime.inventory }, discovered: [...runtime.discovered], health: Math.ceil(runtime.health), stamina: Math.round(runtime.stamina), timer: Math.ceil(runtime.timer), x: camera.position.x, z: camera.position.z });saveGame();};
+    const snapshotHud = () => {setHud({ ...runtime, houses:structuredClone(runtime.houses),learned:[...runtime.learned],talkedTo:[...runtime.talkedTo],inventory: { ...runtime.inventory }, discovered: [...runtime.discovered], health: Math.ceil(runtime.health), stamina: Math.round(runtime.stamina), timer: Math.ceil(runtime.timer), x: camera.position.x, z: camera.position.z });saveGame();};
     const openJournal = (note?: number) => {
       if (conversation) return;
       if(runtime.hasMap)learn('map');
+      const contacts = [
+        { id: 'mara', name: 'Mara', anchor: npcAnchors.mara },
+        { id: 'noah', name: 'Noah', anchor: npcAnchors.noah },
+        ...cityNpcs,
+      ];
+      setMapNpcs(contacts.filter(npc => runtime.talkedTo.includes(npc.id)).map(npc => ({ id: npc.id, name: npc.name, x: npc.anchor.position.x, z: npc.anchor.position.z })));
       setMapBuildings(mapFootprints.map(building => ({ ...building })));
       runtime.active = false; journalOpen = true; keys.clear(); triggerHeld = false; runtime.aiming = false; snapshotHud();saveGame(true);
       if (note !== undefined) { setSelectedNote(note); setJournalTab('notes'); } else setJournalTab(runtime.hasMap ? 'map' : 'inventory');
@@ -697,11 +718,15 @@ export default function Game() {
     const say = (entry: readonly [string, string | readonly string[]], complete:CampaignId|null=null) => {
       conversation = { speaker: entry[0], lines: subtitleLines(entry[1]), index: 0, complete };
       keys.clear(); triggerHeld = false; runtime.aiming = false; setLocation(null);
-      const speaker = entry[0] === 'MARA' ? npcAnchors.mara : entry[0] === 'NOAH' ? npcAnchors.noah : cityNpcs.find(npc => npc.name === entry[0])?.anchor;
-      if (speaker) {
+      const contact = entry[0] === 'MARA' ? { id: 'mara', anchor: npcAnchors.mara }
+        : entry[0] === 'NOAH' ? { id: 'noah', anchor: npcAnchors.noah }
+        : cityNpcs.find(npc => npc.name === entry[0] || npc.name.split(' · ')[0] === entry[0]);
+      const speaker = contact?.anchor;
+      if (speaker && contact) {
+        if (horizontalDistance(camera.position, speaker.position) < 5 && !runtime.talkedTo.includes(contact.id)) runtime.talkedTo.push(contact.id);
         const dx = speaker.position.x - camera.position.x, dz = speaker.position.z - camera.position.z;
         yaw = Math.atan2(-dx, -dz);
-        pitch = Math.atan2(speaker.position.y + 1.5 - camera.position.y, Math.hypot(dx, dz));
+        pitch = THREE.MathUtils.clamp(Math.atan2(speaker.position.y + 1.5 - camera.position.y, Math.hypot(dx, dz)), -1.25, 1.25);
         camera.rotation.set(pitch, yaw, 0);
         speaker.rotation.y = Math.atan2(camera.position.x - speaker.position.x, camera.position.z - speaker.position.z);
       }
@@ -824,12 +849,19 @@ export default function Game() {
     const nearEnemy = (position: THREE.Vector3, radius: number) => enemies.some((enemy) => enemy.alive && horizontalDistance(enemy.group.position, position) < radius);
     const completeStory = (id:CampaignId) => {
       if(OBJECTIVES[runtime.stage].id!==id)return;
-      if(id==='intro'){runtime.hasMap=true;learn(id);notify('Karte erhalten · [M] Tannwald & Umgebung');spawnPack(-24,-2,5);}
+      if(id==='intro'){runtime.hasMap=true;learn(id);notify('Karte erhalten · [M] Fichtenau & Region');spawnPack(START_POINTS.fuel.x+10,START_POINTS.fuel.z-6,3);}
       else if(id==='fuel'){fuelCell.visible=false;learn(id);}
-      else if(id==='returnFuel'){npcAnchors.noah.visible=true;learn(id);spawnPack(15,17,7);}
+      else if(id==='returnFuel')learn(id);
       else if(id==='serum'){serum.visible=false;learn(id);spawnPack(62,-20,7);}
       else if(id==='tower'){runtime.timer=runtime.repaired?30:40;learn(id);spawnPack(66,-25,10);}
-      else learn(id);
+      else {
+        if(id==='oldMarket'){npcAnchors.noah.visible=true;spawnPack(15,17,7);}
+        const mission=OBJECTIVES[runtime.stage];
+        if(mission.area&&!runtime.visited.includes(mission.area))runtime.visited.push(mission.area);
+        for(const poi of REGION_POIS)if(Math.hypot(poi.x-mission.x,poi.z-mission.z)<10&&!runtime.visited.includes(poi.id))runtime.visited.push(poi.id);
+        learn(id);
+        const route=routeObjects.find(r=>r.id===id);if(route){if(id==='quarry')route.object.visible=false;else (route.object.material as THREE.MeshStandardMaterial).emissiveIntensity=.05;}
+      }
     };
     const advanceStory = () => {
       if (!runtime.active) return;
@@ -838,6 +870,7 @@ export default function Game() {
       if (id === 'noah' && nearEnemy(target, 8)) { notify('Sichere zuerst den Bereich um Noah'); return; }
       if (id === 'tower' && horizontalDistance(npcAnchors.noah.position,target)>12) { notify('Noah muss den Sender erreichen · sichere seinen Weg');return; }
       if(id==='intro')say(['MARA',MARA_INTRO],id);
+      else if(OBJECTIVES[runtime.stage].kind==='report')say([OBJECTIVES[runtime.stage].place,OBJECTIVES[runtime.stage].lines!],id);
       else if(id==='fuel'||id==='returnFuel'||id==='noah'||id==='serum')say(STORY[id],id);
       else if(id==='tower')say(runtime.repaired?['MARA · FUNK','Das verstärkte Signal kommt durch! Der Konvoi holt euch mit der Dosis ab. Bleibt dreißig Sekunden am Sender und schützt Noah!']:STORY.tower,id);
       else notify(OBJECTIVES[runtime.stage].detail);
@@ -869,15 +902,15 @@ export default function Game() {
         runtime.elapsed=nextHour(runtime.elapsed,6);runtime.health=Math.min(100,runtime.health+35);runtime.stamina=100;runtime.thirst=Math.max(35,runtime.thirst-20);
         runtime.boosted=0;runtime.damageFlash=0;noises.length=0;
         flares.forEach(f=>releaseFlare(f.object));flares.length=0;
-        if(h.id==='lodge'&&runtime.respawn==='lodge')learn('sleep');
+        if(h.id===START_HOUSE&&runtime.respawn===START_HOUSE)learn('sleep');
         notify('06:00 Uhr · ausgeruht. Vor dem Aufbruch trinken und Türen öffnen.');
       }
       snapshotHud();saveGame(true);
     };
-    type Interaction = { x:number;z:number;label:string;run:()=>void; touch?:boolean };
+    type Interaction = { x:number;z:number;label:string;run:()=>void; touch?:boolean;priority?:boolean };
     const nearestCityInteraction = (): Interaction | undefined => {
       const candidates: Interaction[] = [];
-      for(const gate of safehouseEntrances.gates)candidates.push({x:gate.x+2.4,z:gate.z,label:`${gate.name} · TOR ${gate.open?'SCHLIESSEN':'ÖFFNEN'}`,touch:true,run:()=>{
+      for(const gate of safehouseEntrances.gates)candidates.push({x:gate.x+2.4,z:gate.z,label:`${gate.name} · TOR ${gate.open?'SCHLIESSEN':'ÖFFNEN'}`,touch:true,priority:!gate.open,run:()=>{
         const inSwing=(p:Point)=>p.x>gate.x-2.65&&p.x<gate.x+2.65&&p.z>gate.z-.7&&p.z<gate.z+4.7;
         const occupied=inSwing(camera.position)||npcAnchors.noah.visible&&inSwing(npcAnchors.noah.position)||cityNpcs.some(n=>inSwing(n.anchor.position))||enemies.some(e=>e.alive&&inSwing(e.group.position));
         if(occupied){notify('Schwenkbereich freihalten · tritt seitlich oder weiter vom Tor zurück.');return;}
@@ -918,7 +951,7 @@ export default function Game() {
           else say([npc.name,'Die Notbeleuchtung läuft. Der Polizeischlüssel gehört dir. In der Waffenkammer liegt eine Jagdflinte. Verlass dich nicht auf das Licht: Der Generator ist laut.']);
         } else if(npc.id==='weber') {
           if(OBJECTIVES[runtime.stage].id==='weber'){
-            say([npc.name,['Noah! Gut, dass ihr die Nacht überstanden habt. Eine stabile Dosis kann den Überlebenden helfen. In der alten Klinik liegen auch unbrauchbare Proben: Wir brauchen die Behälterkennung aus meinem Lagerprotokoll.','Das Original liegt im Lazarus-Archiv. Seine elektrische Tür braucht Strom. Lenz im Schulhof repariert den Generator; danach holt ihr meine blaue Keycard am Kontrollpunkt Nord.','Für die Rückkehr durch die Klinik gebe ich euch einen Rat: Verbände mit 1 gegen Wunden, Antibiotika mit 7 gegen Infektion, eine Weste mit 8 gegen Bisse. Vorräte liegen in der Notaufnahme.','Lest das Protokoll, bergt genau die dort genannte Dosis und bringt sie mit Noah zum Konvoi. Ich halte die Notaufnahme für die Verletzten offen.']], 'weber');return;
+            say([npc.name,['Noah! Und ihr habt die Transportspur gefunden? W-07 im Steinbruch – endlich. Eine stabile Dosis kann den Überlebenden helfen. In der alten Klinik liegen auch unbrauchbare Proben: Wir brauchen die Kennung aus meinem Lagerprotokoll.','Das Original liegt im Lazarus-Archiv. Seine elektrische Tür braucht Strom. Lenz im Schulhof repariert den Generator; danach holt ihr meine blaue Keycard am Kontrollpunkt Nord.','Für die Rückkehr durch die Klinik: Verbände mit 1 gegen Wunden, Antibiotika mit 7 gegen Infektion, eine Weste mit 8 gegen Bisse. Medizin liegt in der Notaufnahme.','Lest das Protokoll. Dann nehmt die Südroute durch Linden und Brückenfeld zum Kühlbehälter W-07, bergt genau die genannte Dosis und bringt sie mit Noah zum Konvoi. Ich halte die Notaufnahme für die Verletzten offen.']], 'weber');return;
           }
           if(runtime.benQuest>=3 && runtime.benQuest<4){runtime.benQuest=4;runtime.health=100;runtime.infection=0;runtime.inventory.medkit=Math.min(ITEMS.medkit.limit,runtime.inventory.medkit+2);say([npc.name,'Ben lebt? Dann war es nicht umsonst. Ich versorge deine Wunden. Diese Verbände sind für euch. Im Lazarus-Archiv liegt noch der Beweis gegen Falk.']);}
           else if(runtime.evidence.includes('archive'))say([npc.name,'Falk hat den Abbruchbefehl unterschrieben. Mit diesem Original kann er die Wahrheit nicht länger verschweigen. Bring es mit dem Gegenmittel zum Konvoi.']);
@@ -949,22 +982,25 @@ export default function Game() {
         if(door.id==='lab'&&!runtime.keycard){notify('Keycard fehlt · Kontrollpunkt Nord');return;}
         city.openDoor(door.id);tone(380,.25,'triangle');notify('Zugang entriegelt');
       }});
-      if(runtime.stage>0)candidates.push({x:-53,z:-36,label:'MIT MARA SPRECHEN',run:()=>say(['MARA',runtime.evidence.includes('ben')||runtime.discovered.includes(4)?'Lea lebt? Und Ben hat es geschafft? Danke. Ich halte die Station, bis ihr den Sender erreicht.':'Ich halte das Feuer am Leben. Wenn du in die Oststadt gehst: Dr. Weber sucht dort nach Ben.'])});
+      if(runtime.stage>0)candidates.push({...START_POINTS.mara,label:'MIT MARA SPRECHEN',run:()=>say(['MARA',runtime.evidence.includes('ben')||runtime.discovered.includes(4)?'Lea lebt? Und Ben hat es geschafft? Danke. Ich halte den Funkkontakt hier in Fichtenau, bis ihr den Sender erreicht.':'Ich halte das Funkgerät am Laufen. Folge der markierten Spur; sichere unterwegs Häuser, wenn du einen Schlafplatz brauchst.'])});
       return candidates.filter(p=>Math.hypot(p.x-camera.position.x,p.z-camera.position.z)<2.6&&(p.touch||visibleFrom(camera.position,new THREE.Vector3(p.x,0,p.z)))).sort((a,b)=>Math.hypot(a.x-camera.position.x,a.z-camera.position.z)-Math.hypot(b.x-camera.position.x,b.z-camera.position.z))[0];
     };
     const interact = () => {
       if (!runtime.active) return;
       if (conversation) { nextDialogue(); return; }
+      const current=OBJECTIVES[runtime.stage];
+      if(current.kind==='report'&&horizontalDistance(camera.position,current.target)<3.2&&visibleFrom(camera.position,current.target)){advanceStory();return;}
+      const doorway=nearestCityInteraction();if(doorway?.priority){doorway.run();syncCampaign();snapshotHud();return;}
       const item = nearestPickup();
       if (item) {
         const name = lootName(item.kind);
         if (item.kind === 'ammo' || item.kind === 'shells' || item.kind === 'rifleAmmo') { runtime.arsenal[item.kind==='ammo'?'pistol':item.kind==='shells'?'shotgun':'rifle'].reserve += item.count; syncAmmo(); }
-        else { const room = ITEMS[item.kind].limit - runtime.inventory[item.kind]; if (room <= 0) { notify(`${name}: Inventar voll`); return; } const amount = Math.min(room, item.count); runtime.inventory[item.kind] += amount; item.count -= amount;if(item.kind==='medkit')learn('supplies');if(runtime.inventory.planks>=8&&runtime.inventory.scrap>=2)learn('planks'); if (item.count > 0) { notify(`${name} +${amount} · Rest bleibt liegen`);snapshotHud();return; } }
+        else { const room = ITEMS[item.kind].limit - runtime.inventory[item.kind]; if (room <= 0) { if(doorway){doorway.run();syncCampaign();snapshotHud();}else notify(`${name}: Inventar voll`);return; } const amount = Math.min(room, item.count); runtime.inventory[item.kind] += amount; item.count -= amount;if(item.kind==='medkit')learn('supplies');if(runtime.inventory.planks>=8&&runtime.inventory.scrap>=2)learn('planks'); if (item.count > 0) { notify(`${name} +${amount} · Rest bleibt liegen`);snapshotHud();return; } }
         item.taken = true; item.object.visible = false;syncCampaign();snapshotHud();notify(`${name} eingesammelt`); tone(420, 0.12, 'sine'); return;
       }
       const note = nearestNote();
       if (note >= 0) { if (!runtime.discovered.includes(note)) runtime.discovered.push(note); openJournal(note); return; }
-      if(['intro','fuel','returnFuel','noah','serum','tower'].includes(OBJECTIVES[runtime.stage].id)&&horizontalDistance(camera.position,OBJECTIVES[runtime.stage].target)<3.2){advanceStory();return;}
+      if((OBJECTIVES[runtime.stage].kind==='report'||['intro','fuel','returnFuel','noah','serum','tower'].includes(OBJECTIVES[runtime.stage].id))&&horizontalDistance(camera.position,OBJECTIVES[runtime.stage].target)<3.2){advanceStory();return;}
       const cityInteraction=nearestCityInteraction();if(cityInteraction){cityInteraction.run();syncCampaign();snapshotHud();return;}
       advanceStory();
     };
@@ -1003,7 +1039,7 @@ export default function Game() {
     const saveGame = (force=false) => {
       if(!started||disposed||!force&&performance.now()-lastSaveAt<3000)return;
       const saved:GameSave={
-        version:1,savedAt:Date.now(),mission:OBJECTIVES[runtime.stage].id,
+        version:1,revision:2,savedAt:Date.now(),mission:OBJECTIVES[runtime.stage].id,
         phase:runtime.health<=0?'dead':runtime.stage===DEFENSE&&runtime.timer<=0?'won':'playing',
         progress:structuredClone(pickProgress(runtime)),player:{x:camera.position.x,z:camera.position.z,yaw,pitch},
         noah:{x:npcAnchors.noah.position.x,z:npcAnchors.noah.position.z},
@@ -1035,6 +1071,7 @@ export default function Game() {
       enemies.forEach(releaseEnemy); enemies.length = 0; enemyHitboxes.length = 0;
       camera.position.set(START.x, terrainHeight(START.x, START.z) + 1.72, START.z); yaw = -1.45; pitch = -0.06; camera.rotation.set(pitch, yaw, 0);
       fuelCell.visible = true; serum.visible = true; npcAnchors.noah.visible = false;
+      routeObjects.forEach(r=>{r.object.visible=true;(r.object.material as THREE.MeshStandardMaterial).emissiveIntensity=.6;});
       pickups.forEach((item, i) => { item.taken = false; item.object.visible = true; item.count = WORLD_LOOT[i].count; });
       runtime = freshRuntime(); runtime.active = true; updateWeaponModel();
       safehouseEntrances.reset();uvWasScheduled=uvScheduled(runtime.elapsed);
@@ -1044,12 +1081,13 @@ export default function Game() {
         camera.position.set(saved.player.x,terrainHeight(saved.player.x,saved.player.z)+1.72,saved.player.z);
         yaw=saved.player.yaw;pitch=saved.player.pitch;camera.rotation.set(pitch,yaw,0);
         npcAnchors.noah.position.set(saved.noah.x,terrainHeight(saved.noah.x,saved.noah.z),saved.noah.z);
-        npcAnchors.noah.visible=runtime.learned.includes('returnFuel');
+        npcAnchors.noah.visible=runtime.learned.includes('oldMarket')||runtime.learned.includes('noah')||runtime.stage>=missionIndex('flare');
         for(const h of SAFEHOUSES){const state=runtime.houses[h.id];state.windows.forEach((closed,i)=>city.setFortification(h.id,'window',i,closed));state.closed.forEach((closed,i)=>city.setFortification(h.id,'door',i,closed));city.setFortification(h.id,'bed',0,state.bed);}
         saved.doors.forEach(id=>city.openDoor(id));saved.gates.forEach(id=>safehouseEntrances.setGate(id,true));
         const remaining=new Map(saved.loot.map(p=>[p.key,p.remaining]));
         pickups.forEach((p,i)=>{p.count=remaining.get(saveManifest.loot[i].key)!;p.taken=p.count===0;p.object.visible=!p.taken;});
         fuelCell.visible=!runtime.learned.includes('fuel');serum.visible=!runtime.learned.includes('serum');
+        routeObjects.forEach(r=>{const done=runtime.learned.includes(r.id);r.object.visible=r.id!=='quarry'||!done;(r.object.material as THREE.MeshStandardMaterial).emissiveIntensity=done?.05:.6;});
         questProps.forEach(p=>{p.object.visible=p.id==='fuse'?runtime.powerQuest<2:p.id==='keycard'?!runtime.keycard:p.id==='shotgun'||p.id==='rifle'?!runtime.arsenal[p.id].owned:true;});
         for(const e of saved.enemies){const before=enemies.length;spawnEnemy(e.x,e.z,false,e.kind,true);if(enemies.length>before){const restored=enemies[enemies.length-1];restored.health=e.health;restored.brain=structuredClone(e.brain);restored.group.rotation.y=e.yaw;}}
         saved.flares.forEach(f=>createFlare(f.x,f.z,f.life));noises.push(...structuredClone(saved.noises));
@@ -1059,7 +1097,7 @@ export default function Game() {
         syncAmmo();updateWeaponModel();uvWasScheduled=uvScheduled(runtime.elapsed);
       }
       started=true;moveObjectiveMarker(runtime.stage);snapshotHud();saveGame(true);setScreen(saved?.phase??'playing');setLocation(null);
-      notify(saved?'Spielstand geladen · dein nächster Auftrag steht oben.':'Mara wartet am Feuer · [E] mit ihr sprechen');
+      notify(saved?'Spielstand geladen · dein nächster Auftrag steht oben.':'Fichtenau · Mara wartet am Feuer. [E] mit ihr sprechen.');
       if(runtime.active){audio??=new AudioContext();audio.resume();canvas.requestPointerLock?.()?.catch(()=>undefined);}
     };
     const continueGame = () => {const saved=readSave();if(saved)resetGame(saved);};
@@ -1088,8 +1126,9 @@ export default function Game() {
     // Development-only QA surface: exercise actual interaction/combat functions
     // and inspect live renderer counters without shipping cheats in production.
     if (process.env.NODE_ENV !== 'production') Object.assign(window, { __nachtwache: {
+      campaign:()=>({missions:CAMPAIGN,start:START_POINTS,camp:START_CAMP,houses:SAFEHOUSES,firstHouse:START_HOUSE}),
       state: () => ({ ...runtime,mission:OBJECTIVES[runtime.stage].id,protectedHouse:protectedHouseAt(camera.position.x,camera.position.z)?.id,trainingTarget:trainingTarget.position.toArray(),dialogue: conversation ? { speaker: conversation.speaker, lines: [...conversation.lines], index: conversation.index } : null, inventory:{...runtime.inventory},arsenal:structuredClone(runtime.arsenal),position:camera.position.toArray(),noah:npcAnchors.noah.position.toArray(),enemies:enemies.map(e=>({kind:e.kind,state:e.brain.state,health:e.health,x:e.group.position.x,z:e.group.position.z,y:e.group.position.y,head:e.head.getWorldPosition(new THREE.Vector3()).toArray(),visible:visibleFrom(camera.position,e.group.position),alive:e.alive})),render:{calls:renderer.info.render.calls,triangles:renderer.info.render.triangles},doors:city.doors.map(d=>({id:d.id,open:d.open})) }),
-      teleport: (x:number,z:number,direction=0) => {if(collides(x,z))throw Error('QA destination is blocked');camera.position.set(x,terrainHeight(x,z)+1.72,z);yaw=direction;pitch=0;camera.rotation.set(pitch,yaw,0);},
+      teleport: (x:number,z:number,direction=0,withNoah=false) => {if(collides(x,z))throw Error('QA destination is blocked');camera.position.set(x,terrainHeight(x,z)+1.72,z);yaw=direction;pitch=0;camera.rotation.set(pitch,yaw,0);if(withNoah&&runtime.learned.includes('noah')){const offset=[-2,2,-3,3].find(dx=>!collides(x+dx,z));if(offset!==undefined){npcAnchors.noah.position.set(x+offset,terrainHeight(x+offset,z),z);noahPath=[];noahPathTime=0;}}},
       interact, shoot, reload:reloadWeapon, switchWeapon, start:()=>resetGame(),continue:continueGame,menu:returnToMenu,save:()=>saveGame(true),nextDialogue,consume:consumeItem,respawn:respawnPlayer,shelter:shelterAction,
       setAiming:(aiming:boolean)=>{runtime.aiming=aiming;},hurt:hurtPlayer,
       spawn: (x:number,z:number,kind:ZombieKind) => { const before=enemies.length;spawnEnemy(x,z,false,kind);if(enemies.length>before)transition(enemies[enemies.length-1].brain,'idle',2); },
@@ -1098,7 +1137,7 @@ export default function Game() {
       setTime: (hours:number) => { runtime.elapsed=((hours-9+24)%24)*60; snapshotHud(); },
       environment: () => ({ ...daylightAt(runtime.elapsed), threat:nightThreat(runtime.elapsed), uvProtected:protectedAt(camera.position.x,camera.position.z)?.id, gates:safehouseEntrances.gates.map(g=>({id:g.id,x:g.x,z:g.z,open:g.open,uv:g.uv,lamps:g.tubes.some(t=>t.visible)})), refuge:refugeAt(camera.position.x,camera.position.z)?.id, sun:daylightAt(runtime.elapsed).sunIntensity, moon:daylightAt(runtime.elapsed).moonIntensity, fog:scene.fog instanceof THREE.FogExp2?scene.fog.density:0, npcs:cityNpcs.map(n=>({id:n.id,x:n.x,z:n.z})), placements:placements.filter(p=>p.anchor.parent).length,detail:worldDetail?.stats }),
       performance: () => ({frameAverageMs:resolutionBudget.averageMs,resolutionScale:resolutionBudget.scale,pixelRatio:renderer.getPixelRatio(),buffer:[canvas.width,canvas.height],trees:treeDetail?.levels(),localLights:localLightPool.slots.length,programs:renderer.info.programs?.length,geometries:renderer.info.memory.geometries,textures:renderer.info.memory.textures,contextLosses,contextLost,frames:renderedFrames}),
-      world: () => ({bounds:WORLD,...regionWorld.stats(),zones:WORLD_ZONES,pois:REGION_POIS,bridges:BRIDGES,structures:STRUCTURES,roads:ROAD_LINES,risk:riskAt(camera.position.x,camera.position.z),dressing:settlementDetail?.stats(),dressingScenes:settlementDetail?.plan.scenes,dressingProps:settlementDetail?.plan.props,dressingBounds:settlementDetail?.bounds}),
+      world: () => ({bounds:WORLD,...regionWorld.stats(),nature:regionNature?.stats(),zones:WORLD_ZONES,pois:REGION_POIS,bridges:BRIDGES,structures:STRUCTURES,roads:ROAD_LINES,risk:riskAt(camera.position.x,camera.position.z),dressing:settlementDetail?.stats(),dressingScenes:settlementDetail?.plan.scenes,dressingProps:settlementDetail?.plan.props,dressingBounds:settlementDetail?.bounds}),
       blocked: (x:number,z:number) => collides(x,z), height:terrainHeight,
     }});
 
@@ -1239,7 +1278,15 @@ export default function Game() {
       worldDetail.update(camera.position.x,camera.position.z);
       treeDetail=createTreeDetailController(scene);treeDetail.update(camera.position.x,camera.position.z);
       settlementDetail=await buildSettlementDetail(scene,[...detailFootprints,...obstacles],reserved,regionCollision,load,()=>disposed);
+      if(disposed)return;
       settlementDetail?.update(camera.position.x,camera.position.z);
+      const naturePlan=planRegionNature([...detailFootprints,...obstacles,...regionCollision.obstacles,...(settlementDetail?.plan.props??[])],reserved);
+      regionNature=buildRegionNature(scene,naturePlan);
+      for(const p of naturePlan)if(p.kind==='rock'){
+        // Low plants remain walkable; substantial boulders have real collision.
+        const o={x:p.x,z:p.z,hx:p.radius*.8,hz:p.radius*.8};regionCollision.obstacles.push(o);regionCollision.index.add(o);
+      }
+      regionNature.update(camera.position.x,camera.position.z);
     });
     Promise.all([
       clearLayout,
@@ -1302,7 +1349,7 @@ export default function Game() {
       const time = performance.now() * 0.001;
       cullTime-=dt;
       if(cullTime<=0){
-        cullTime=.16;regionWorld.update(camera.position.x,camera.position.z);city.update(camera.position.x,camera.position.z);worldDetail?.update(camera.position.x,camera.position.z);treeDetail?.update(camera.position.x,camera.position.z);settlementDetail?.update(camera.position.x,camera.position.z);
+        cullTime=.16;regionWorld.update(camera.position.x,camera.position.z);city.update(camera.position.x,camera.position.z);worldDetail?.update(camera.position.x,camera.position.z);treeDetail?.update(camera.position.x,camera.position.z);settlementDetail?.update(camera.position.x,camera.position.z);regionNature?.update(camera.position.x,camera.position.z);
         for(const p of placements)p.anchor.visible=Math.hypot(p.anchor.position.x-camera.position.x,p.anchor.position.z-camera.position.z)<180;
         for(const s of regionalSigns)s.group.visible=Math.hypot(s.x-camera.position.x,s.z-camera.position.z)<180;
       }
@@ -1463,13 +1510,14 @@ export default function Game() {
         syncCampaign();
         if (runtime.active && runtime.stage === DEFENSE && horizontalDistance(camera.position, OBJECTIVES[DEFENSE].target) < 18) { runtime.timer = Math.max(0, runtime.timer - dt); if (runtime.timer <= 0) { runtime.active = false; setDialogue(null); conversation = null; snapshotHud();saveGame(true); document.exitPointerLock?.();setScreen('won'); } }
         const objective = OBJECTIVES[runtime.stage]; const distance = horizontalDistance(camera.position, objective.target); runtime.distance = Math.round(distance);
-        runtime.prompt = distance < 3.2 ? (runtime.stage === RESCUE && nearEnemy(objective.target, 8) ? 'BEREICH SICHERN' : runtime.stage === DEFENSE ? 'HALTE DIE STELLUNG' : ['intro','fuel','noah','serum','tower'].includes(objective.id)?'[E] INTERAGIEREN':objective.detail) : '';
+        runtime.prompt = distance < 3.2 ? (runtime.stage === RESCUE && nearEnemy(objective.target, 8) ? 'BEREICH SICHERN' : runtime.stage === DEFENSE ? 'HALTE DIE STELLUNG' : objective.kind==='report'?'[E] RETTUNGSROUTE · '+objective.title:['intro','fuel','returnFuel','noah','serum','tower'].includes(objective.id)?'[E] INTERAGIEREN':objective.detail) : '';
         if(runtime.stage===TOWER&&distance<3.2&&horizontalDistance(npcAnchors.noah.position,objective.target)>12)runtime.prompt='NOAH ZUM SENDER BEGLEITEN';
         if (runtime.stage === DEFENSE && distance >= 18) runtime.prompt = 'ZUM SENDER ZURÜCKKEHREN · KONVOI WARTET';
         const nearItem = nearestPickup(), nearNote = nearestNote();
         if (nearNote >= 0) runtime.prompt = `[E] BRIEF LESEN · ${NOTES[nearNote].title}`;
         if (nearItem) runtime.prompt = `[E] ${lootName(nearItem.kind).toUpperCase()} ×${nearItem.count}`;
-        const cityInteraction=nearestCityInteraction();if(cityInteraction&&!nearItem&&nearNote<0)runtime.prompt=`[E] ${cityInteraction.label}`;
+        const cityInteraction=nearestCityInteraction();if(cityInteraction&&(cityInteraction.priority||!nearItem&&nearNote<0))runtime.prompt=`[E] ${cityInteraction.label}`;
+        if(objective.kind==='report'&&distance<3.2&&visibleFrom(camera.position,objective.target))runtime.prompt='[E] RETTUNGSROUTE · '+objective.title;
         cityClues.forEach((paper,i)=>{(paper.material as THREE.MeshStandardMaterial).emissiveIntensity=runtime.evidence.includes(DISCOVERIES[i].id)?.05:.4;});
         noteObjects.forEach((paper, i) => { (paper.material as THREE.MeshStandardMaterial).emissiveIntensity = runtime.discovered.includes(i) ? 0.05 : 0.4 + Math.sin(time * 2) * 0.15; });
 
@@ -1478,7 +1526,7 @@ export default function Game() {
         const regionPlace=poi??zone;
         if(regionPlace&&!inLegacy(camera.position.x,camera.position.z)&&!runtime.visited.includes(regionPlace.id)){
           runtime.visited.push(regionPlace.id);
-          if(regionPlace.risk>0)spawnPack(regionPlace.x+15,regionPlace.z-15,[0,3,6,9][regionPlace.risk]);
+          if(regionPlace.risk>0&&!refugeAt(camera.position.x,camera.position.z))spawnPack(regionPlace.x+15,regionPlace.z-15,[0,3,6,9][regionPlace.risk]);
         }
         const currentLocation = cityLocation ? {name:cityLocation.name,subtitle:cityLocation.story} : !inLegacy(camera.position.x,camera.position.z)?{name:regionPlace?.name??'TANNWALD · FREIE LANDSCHAFT',subtitle:`${regionPlace?.detail??'Weiden und Waldsäume zwischen den Orten.'} · RISIKO ${riskAt(camera.position.x,camera.position.z)+1}/4`}:camera.position.x>85?{name:'TANNWALD · OSTSTADT',subtitle:'RINGSTRASSE · EVAKUIERUNGSSEKTOR'}:camera.position.x<-95?{name:'BIRKENRAIN',subtitle:'WALDWEG · AUSSENGEBIET'}:LOCATIONS.find((item) => item.test(camera.position.x, camera.position.z))!;
         if (currentLocation.name !== runtime.locationName) { runtime.locationName = currentLocation.name; setLocation({ name: currentLocation.name, subtitle: currentLocation.subtitle }); locationTime = 3.2; }
@@ -1544,7 +1592,7 @@ export default function Game() {
         <header><div><p className="eyebrow">ELIAS VOSS · FELDJOURNAL</p><h2>Spuren einer Nacht.</h2></div><button type="button" onClick={resume} autoFocus>Zurück ins Spiel <kbd>J</kbd></button></header>
         <nav aria-label="Journalansicht"><button type="button" aria-pressed={journalTab === 'map'} onClick={() => setJournalTab('map')}>Karte & Aufgaben</button><button type="button" aria-pressed={journalTab === 'inventory'} onClick={() => setJournalTab('inventory')}>Ausrüstung</button><button type="button" aria-pressed={journalTab === 'notes'} onClick={() => setJournalTab('notes')}>Fundstücke <span>{hud.discovered.length}/5</span></button><span>Spiel pausiert</span></nav>
         {journalTab === 'map' ? <div className="journal-layout">
-          <div className="map-panel">{hud.hasMap ? <WorldMap player={{ x: hud.x, z: hud.z }} target={objective.target} visited={hud.visited} buildings={mapBuildings} houses={hud.houses} respawn={hud.respawn} /> : <div className="map-missing"><h3>Die Karte hat Mara.</h3><p>Sprich mit ihr am Feuer der Rangerstation. Sie erklärt dir die Lage und gibt dir ihre Karte.</p></div>}
+          <div className="map-panel">{hud.hasMap ? <WorldMap player={{ x: hud.x, z: hud.z }} target={objective.target} visited={hud.visited} buildings={mapBuildings} houses={hud.houses} respawn={hud.respawn} npcs={mapNpcs} /> : <div className="map-missing"><h3>Die Karte hat Mara.</h3><p>Sprich mit ihr am Feuer im Rangerlager Fichtenau. Sie erklärt dir die Lage und gibt dir ihre Karte.</p></div>}
           <section className="quest-log"><h3>Euer Rettungsplan</h3><p>{STORY_GOAL}</p><ol className="story-chapters">{CHAPTERS.map((c,i)=><li key={c.title} aria-current={i===objective.chapter?'step':undefined}><b>{i<objective.chapter?'✓ ':''}{c.title}</b><p>{c.summary}</p></li>)}</ol><article><small>JETZT · {objective.place} · {hud.stage+1}/{OBJECTIVES.length}</small><b>{objective.title}</b><p>{objective.reason}</p><p>{objective.detail}</p></article><details><summary>Storyfortschritt ansehen</summary>{OBJECTIVES.map((m,i)=><p key={m.id}>{i<hud.stage?'✓':i===hud.stage?'→':'○'} {i+1}. {m.title}</p>)}</details></section>
           <section className="quest-log"><h3>Eigene Unterschlüpfe</h3><p>Vier Fenster × 2 Bretter, zwei Türen × 1 Ersatzteil und ein Bett × 1 Ration. E am Bett aktiviert den Ort. Tore mit E am rechten Pfosten öffnen und schließen. Nach Aktivierung schaltet UV von 17:30 bis 06:30 Uhr ein; offene Tore bleiben nachts durch UV geschützt. Zum Schlafen die Haustüren schließen; Schlafzeit 19 bis 06 Uhr.</p>{SAFEHOUSES.map(h=><article key={h.id}><b>{h.name}{hud.respawn===h.id?' · RESPAWNPUNKT':''}</b><p>Fenster {hud.houses[h.id].windows.filter(Boolean).length}/4 · Türen {hud.houses[h.id].reinforced.filter(Boolean).length}/2 · Bett {hud.houses[h.id].bed?'bereit':'offen'} · {houseProtected(hud.houses[h.id])?'gesichert':hud.houses[h.id].claimed?'Türen offen':'noch nicht aktiviert'}</p></article>)}</section>
           <section className="quest-log"><h3>Nebenauftrag · Ben finden</h3><p>Diese Suche ist freiwillig und gehört nicht zum nächsten Schritt eures Rettungsplans.</p><article><b>Ein Name auf der Liste</b><p>{hud.benQuest===0?'Dr. Weber sucht Ben Voss. Frag sie nach ihm, wenn du helfen möchtest.':hud.benQuest>=4?'✓ Ben lebt. Dr. Weber hat deine Wunden versorgt.':hud.benQuest===3?'Melde Weber, dass Ben im Waldcamp lebt.':hud.evidence.includes('ambulance')?'Folge dem Waldweg zum Camp am Birkenrain.':hud.evidence.includes('triage')?'Suche das Funkprotokoll im Bahnhof.':'Lies die Patientenliste in der Notaufnahme.'}</p></article></section>
@@ -1553,13 +1601,14 @@ export default function Game() {
         </div> : journalTab === 'inventory' ? <div className="equipment-layout"><aside className="inventory-panel"><h3>Waffen & Ausrüstung</h3><p className="ammo-stock">Reserve: 9 mm {hud.arsenal.pistol.reserve} · 12/70 {hud.arsenal.shotgun.reserve} · 5.56 mm {hud.arsenal.rifle.reserve}</p>{(Object.keys(WEAPONS) as WeaponKind[]).filter(k=>hud.arsenal[k].owned).map(k=><div key={k}><section><b>{hud.weapon===k?'● ':''}{WEAPONS[k].name}</b><p>{k==='axe'?'Nahkampf · 20 Ausdauer · 2,6 m':WEAPONS[k].ammo + ' · ' + hud.arsenal[k].ammo + ' / ' + hud.arsenal[k].reserve + ' Patronen'}</p></section></div>)}<p className="journal-tip">[Q] Waffe wechseln · [R] Nachladen · Rechte Maus: zielen. Nachladen wird beim Waffenwechsel abgebrochen.</p>{(Object.entries(ITEMS) as [ItemKind, typeof ITEMS[ItemKind]][]).map(([kind, item]) => <div key={kind}><kbd>{item.key}</kbd><section><b>{item.name} <em>×{hud.inventory[kind]}</em></b><p>{item.purpose}</p></section></div>)}<p className="journal-tip">Mit E sammeln und Briefe lesen. Gehen ist leise; Sprinten und Schüsse locken Infizierte an. Fackeln geben dir Zeit zum Durchbrechen.</p><p className="journal-tip">{hud.repaired ? '✓ Sender verstärkt.' : 'Am Funkturm: [5] mit drei Ersatzteilen.'}</p></aside>
         </div> : <div className="notes-layout"><aside>{NOTES.map((note, i) => <button type="button" key={note.title} disabled={!hud.discovered.includes(i)} aria-pressed={selectedNote === i} onClick={() => setSelectedNote(i)}><small>SEKTOR 0{i + 1}</small>{hud.discovered.includes(i) ? note.title : 'Noch nicht gefunden'}</button>)}</aside><article className="letter">{hud.discovered.includes(selectedNote) ? <><p className="eyebrow">{NOTES[selectedNote].author}</p><h3>{NOTES[selectedNote].title}</h3><p>{NOTES[selectedNote].text}</p><footer>Am Fundort: „{NOTES[selectedNote].graffiti.replaceAll(' / ', ' · ')}“</footer></> : <><h3>Jeder Ort hat eine Stimme.</h3><p>Suche nach hellen Briefen auf Kisten und bemalten Tafeln. Gesammelte Briefe kannst du hier jederzeit wieder lesen.</p></>}</article></div>}
         {journalTab==='notes'&&hud.evidence.length>0&&<div className="evidence-list"><h3>Spuren aus der Oststadt</h3>{DISCOVERIES.filter(n=>hud.evidence.includes(n.id)).map(n=><article key={n.id}><h4>{n.title}</h4><p>{n.text}</p></article>)}{hud.evidence.includes('ben')&&<article><h4>Leas Foto · Ben lebt</h4><p>Ben hat das Waldcamp erreicht. Lea und die Kinder sind mit dem Konvoi in Sicherheit.</p></article>}</div>}
+        {journalTab==='notes'&&REGIONAL_STORY.some(r=>hud.learned.includes(r.id))&&<div className="evidence-list"><h3>Unterlagen eurer Rettungsroute</h3>{REGIONAL_STORY.filter(r=>hud.learned.includes(r.id)).map(r=><article key={r.id}><h4>{r.place} · {r.title}</h4><p>{r.lines.join(' ')}</p></article>)}</div>}
       </section>}
 
       {location && !dialogue && screen === 'playing' && <section className="location-card"><small>GEBIET BETRETEN</small><h2>{location.name}</h2><p>{location.subtitle}</p></section>}
       {dialogue && screen === 'playing' && <section className="dialogue-subtitles" aria-label="Gespräch" aria-live="polite" aria-atomic="true"><small>{dialogue.speaker}</small><p key={dialogue.index}>{dialogue.lines[dialogue.index]}</p><button type="button" onClick={() => apiRef.current?.nextDialogue()}><kbd>E</kbd> / Leertaste / Enter · {dialogue.index + 1 === dialogue.lines.length ? 'Gespräch beenden' : 'Weiter'} <span>{dialogue.index + 1} / {dialogue.lines.length}</span></button></section>}
 
       {screen === 'title' && <section className="title-card fps-title">
-        <p className="eyebrow">OPEN WORLD SURVIVAL · TANNWALD · 09:00 UHR</p>
+        <p className="eyebrow">OPEN WORLD SURVIVAL · START IN FICHTENAU · 09:00 UHR</p>
         <h1>NACHT<span>WACHE</span></h1>
         <p className="tagline">Ein letzter Konvoi. Eine stabile Dosis. Und niemand bleibt zurück.</p>
         <div className="start-actions"><button type="button" onClick={()=>apiRef.current?.continue()} disabled={!loaded||!savedGame}>WEITERSPIELEN <span>→</span></button><button type="button" className="secondary" onClick={start} disabled={!loaded}>{loaded?'NEUES SPIEL':'TANNWALD WIRD GELADEN…'} <span>↻</span></button></div>
