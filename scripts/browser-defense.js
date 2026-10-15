@@ -1,12 +1,12 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions -- Playwright CLI invokes this function with its page argument. */
 async(page)=>{
   await page.evaluate(()=>window.__nachtwache.resume());
-  await page.keyboard.press('4');
+  await page.evaluate(()=>window.__nachtwache.consume('flare'));
   for(let i=0;i<230;i++){
     const state=await page.evaluate(()=>window.__nachtwache.state());
     if(state.health<=0)throw Error('Defense failed: player died');
     if(state.timer<=0){await page.screenshot({path:'output/playwright/story-complete.png'});return {won:true,kills:state.kills,health:state.health,timer:state.timer};}
-    if(state.health<70&&state.inventory.medkit>0)await page.keyboard.press('1');
+    if(state.health<70&&state.inventory.medkit>0)await page.evaluate(()=>window.__nachtwache.consume('medkit'));
     await page.evaluate(i=>{
       const g=window.__nachtwache;
       // A small movement around the sender keeps attack windups dodgeable.

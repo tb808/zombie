@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { Scene, Mesh, BoxGeometry, MeshBasicMaterial } from 'three';
 import { CAMPAIGN } from '../app/campaign.ts';
 import { REGIONAL_STORY } from '../app/regionalStory.ts';
+import { STORY_ACTIVITIES, reliefPressure } from '../app/storyActivities.ts';
 import { START_POINTS, REGIONAL_SHELTERS } from '../app/shelterSites.ts';
 import { SAFEHOUSES, HOUSE_LOOT } from '../app/safehouses.ts';
 import { WORLD_ZONES, REGION_POIS, ROAD_LINES, inLegacy } from '../app/regionPlan.ts';
@@ -42,4 +43,14 @@ gates.setGate('fichtenau-camp',true);
 const a=START_POINTS.player,b=START_POINTS.fuel;
 assert(findPath(a,b,[...obstacles,...regional.near(a,b)]).length,'Can leave the opening camp and reach the fuel cell');
 for(const road of ROAD_LINES)for(const p of road.samples)if(!inLegacy(p.x,p.z))assert(!blocked(p.x,p.z),`${road.id}: new houses do not block the road`);
+for(const m of STORY_ACTIVITIES){
+  for(const s of m.steps)assert(!blocked(s.x,s.z),`${m.id}: accessible action ${s.label}`);
+  if(m.actor)for(const s of m.steps.filter(s=>s.kind==='escort'))assert(findPath(m.actor,s,[...obstacles,...regional.near(m.actor,s)]).length,`${m.id}: real escort route`);
+}
+const nearDoor={x:-236.69928983651604,z:453.9899664768131},insideBarn={x:-235,z:462};
+assert(!blocked(nearDoor.x,nearDoor.z));
+assert(findPath(nearDoor,insideBarn,[...obstacles,...regional.near(nearDoor,insideBarn)]).length,'Escort can recalculate beside a doorway without snapping its start into a wall');
+assert.equal(STORY_ACTIVITIES.length,23);assert.equal(STORY_ACTIVITIES.reduce((n,m)=>n+m.steps.length,0),81);
+assert.equal(new Set(STORY_ACTIVITIES.flatMap(m=>m.steps.map(s=>s.kind))).size,10);
+for(const risk of [0,1,2,3]){assert(reliefPressure(risk,true).cap<reliefPressure(risk,false).cap);assert(reliefPressure(risk,true).interval>reliefPressure(risk,false).interval,'Helping reduces reinforcement even in low-risk regions');}
 console.log(`PASS: start in furthest village, ${CAMPAIGN.length} connected steps, all ${WORLD_ZONES.length} regional areas and ${REGION_POIS.length} POIs, ${SAFEHOUSES.length} buildable shelters, clear resources, level floors, working entrances and roads.`);

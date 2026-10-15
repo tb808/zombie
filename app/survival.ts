@@ -67,7 +67,20 @@ export function findPath(start: Point, goal: Point, obstacles: readonly Obstacle
   if(inflated.some(o=>Math.abs(goal.x-o.x)<o.hx&&Math.abs(goal.z-o.z)<o.hz))return [];
   if (!segmentBlocked(start.x, start.z, goal.x, goal.z, inflated)) return [{ ...goal }];
   const step = 1.5, key = (x: number, z: number) => `${x},${z}`;
-  const sx = Math.round(start.x / step), sz = Math.round(start.z / step), gx = Math.round(goal.x / step), gz = Math.round(goal.z / step);
+  let sx = Math.round(start.x / step), sz = Math.round(start.z / step);
+  const gx = Math.round(goal.x / step), gz = Math.round(goal.z / step);
+  // A valid actor position beside a doorway can round into its wall. Seed A*
+  // from a nearby grid point actually reachable from the unsnapped position.
+  if(segmentBlocked(start.x,start.z,sx*step,sz*step,inflated)){
+    const seeds:Point[]=[];
+    for(let dx=-2;dx<=2;dx++)for(let dz=-2;dz<=2;dz++){
+      const x=(sx+dx)*step,z=(sz+dz)*step;
+      if(!segmentBlocked(start.x,start.z,x,z,inflated))seeds.push({x,z});
+    }
+    seeds.sort((a,b)=>Math.hypot(a.x-start.x,a.z-start.z)-Math.hypot(b.x-start.x,b.z-start.z));
+    if(!seeds.length)return [];
+    sx=Math.round(seeds[0].x/step);sz=Math.round(seeds[0].z/step);
+  }
   const open = [{ x: sx, z: sz, g: 0, f: 0 }], costs = new Map([[key(sx, sz), 0]]), parents = new Map<string, string>(), closed = new Set<string>();
   let end = '';
   for (let n = 0; open.length && n < 1800; n++) {
@@ -85,6 +98,7 @@ export function findPath(start: Point, goal: Point, obstacles: readonly Obstacle
   if (!end) return [];
   const path: Point[] = [{ ...goal }];
   while (end !== key(sx, sz)) { const [x, z] = end.split(',').map(Number); path.unshift({ x: x * step, z: z * step }); end = parents.get(end)!; }
+  if(segmentBlocked(start.x,start.z,path[0].x,path[0].z,inflated))path.unshift({x:sx*step,z:sz*step});
   while (path.length > 1 && !segmentBlocked(start.x, start.z, path[1].x, path[1].z, inflated)) path.shift();
   return path;
 }

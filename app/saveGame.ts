@@ -2,23 +2,25 @@ import { CAMPAIGN, type CampaignId } from './campaign.ts';
 import { SAFEHOUSES, newHouses, type HouseState } from './safehouses.ts';
 import { WORLD, WEAPONS, ZOMBIES, type WeaponKind, type ZombieKind, type Brain, type Stimulus } from './survival.ts';
 import { ITEMS, type Inventory } from './world.ts';
+import { newInventoryLayout, validInventoryLayout, type InventoryLayout } from './inventory.ts';
+import { STORY_ACTIVITIES, type ActivityStates, type ActivityMissionId } from './storyActivities.ts';
 
 export const SAVE_KEY = 'nachtwache.save.v1';
 export type PlayerProgress = {
-  health:number;stamina:number;stage:number;kills:number;timer:number;battery:number;inventory:Inventory;
+  health:number;stamina:number;stage:number;kills:number;timer:number;battery:number;inventory:Inventory;inventoryLayout:InventoryLayout;
   boosted:number;repaired:boolean;thirst:number;infection:number;protection:number;powerQuest:number;benQuest:number;
   evidence:string[];visited:string[];discovered:number[];keycard:boolean;elapsed:number;hasMap:boolean;
   weapon:WeaponKind;arsenal:Record<WeaponKind,{owned:boolean;ammo:number;reserve:number}>;
-  houses:Record<string,HouseState>;respawn:string|null;learned:string[];talkedTo:string[];
+  houses:Record<string,HouseState>;respawn:string|null;learned:string[];talkedTo:string[];activities:ActivityStates;
 };
-export type SavedConversation = {speaker:string;lines:string[];index:number;complete:CampaignId|null};
-export const PROGRESS_KEYS = ['health','stamina','stage','kills','timer','battery','inventory','boosted','repaired','thirst','infection','protection','powerQuest','benQuest','evidence','visited','discovered','keycard','elapsed','hasMap','weapon','arsenal','houses','respawn','learned','talkedTo'] as const;
+export type SavedConversation = {speaker:string;lines:string[];index:number;complete:CampaignId|null;activity?:{mission:ActivityMissionId;step:number}|null};
+export const PROGRESS_KEYS = ['health','stamina','stage','kills','timer','battery','inventory','inventoryLayout','boosted','repaired','thirst','infection','protection','powerQuest','benQuest','evidence','visited','discovered','keycard','elapsed','hasMap','weapon','arsenal','houses','respawn','learned','talkedTo','activities'] as const;
 export const pickProgress = (p:PlayerProgress):PlayerProgress => Object.fromEntries(PROGRESS_KEYS.map(key=>[key,p[key]])) as PlayerProgress;
 export type GameSave = {
   version:1;revision:2;savedAt:number;mission:CampaignId;phase:'playing'|'dead'|'won';progress:PlayerProgress;
   player:{x:number;z:number;yaw:number;pitch:number};noah:{x:number;z:number};
   loot:{key:string;remaining:number}[];doors:string[];gates:string[];
-  enemies:{kind:ZombieKind;health:number;x:number;z:number;yaw:number;brain:Brain}[];
+  enemies:{kind:ZombieKind;health:number;x:number;z:number;yaw:number;brain:Brain;encounter?:string}[];
   flares:{x:number;z:number;life:number}[];noises:Stimulus[];
   conversation:SavedConversation|null;flashlight:boolean;reloadLeft:number;shotCooldown:number;invulnerable:number;
 };
@@ -71,12 +73,21 @@ export function parseSave(raw:string|null,manifest:Manifest):GameSave|null {
       ...(Number(p.benQuest)>=3||p.evidence.includes('ben')?['ben']:[]),
     ];
     if(!strings(p.talkedTo,100))return null;
+    if(p.activities===undefined)p.activities={};
+    if(!record(p.activities)||Object.keys(p.activities).length>STORY_ACTIVITIES.length)return null;
+    for(const [id,a] of Object.entries(p.activities)){
+      const mission=STORY_ACTIVITIES.find(m=>m.id===id);
+      if(!mission||!record(a)||!integer(a.step,0,mission.steps.length)||typeof a.started!=='boolean'||!number(a.timer,0,60)||!integer(a.wave,0,2)||a.actor!==null&&!point(a.actor))return null;
+    }
     if(!Array.isArray(p.discovered)||p.discovered.some(n=>!integer(n,0,4)))return null;
     if(!record(p.inventory)||!record(p.arsenal)||!record(p.houses))return null;
     for(const [kind,item] of Object.entries(ITEMS))if(!integer(p.inventory[kind],0,item.limit))return null;
     for(const [kind,weapon] of Object.entries(WEAPONS)){
       const a=p.arsenal[kind];if(!record(a)||typeof a.owned!=='boolean'||!integer(a.ammo,0,weapon.magazine)||!integer(a.reserve,0,1e6))return null;
     }
+    // Existing saves gain movable slots without changing supplies or weapons.
+    if(p.inventoryLayout===undefined)p.inventoryLayout=newInventoryLayout(p.inventory as Inventory,p.arsenal as PlayerProgress['arsenal']);
+    if(!validInventoryLayout(p.inventoryLayout,p.inventory as Inventory,p.arsenal as PlayerProgress['arsenal']))return null;
     if(!(String(p.weapon) in WEAPONS)||!(p.arsenal[String(p.weapon)] as {owned:boolean}).owned)return null;
     for(const h of SAFEHOUSES){
       const state=p.houses[h.id];if(!record(state)||!flags(state.windows,4)||!flags(state.closed,2)||!flags(state.reinforced,2)||typeof state.bed!=='boolean'||typeof state.claimed!=='boolean')return null;
@@ -94,6 +105,7 @@ export function parseSave(raw:string|null,manifest:Manifest):GameSave|null {
     const brainStates=['idle','wander','notice','chase','investigate','search','attack','recover','hit','fall','rise','feed','dead'];
     for(const e of s.enemies){
       if(!record(e)||!(String(e.kind) in ZOMBIES)||!number(e.health,.001,ZOMBIES[e.kind as ZombieKind].health)||!point(e)||!number(e.yaw,-1e9,1e9))return null;
+      if(e.encounter!==undefined&&(typeof e.encounter!=='string'||!STORY_ACTIVITIES.some(m=>m.steps.some((_,i)=>e.encounter===`${m.id}:${i}`))))return null;
       const b=e.brain;if(!record(b)||!brainStates.includes(String(b.state))||!number(b.time,-1e6,1e6)||!number(b.memory)||!number(b.phase,-1e6,1e6)||typeof b.attackLanded!=='boolean')return null;
       for(const key of ['lastKnown','home','target']){const pt=b[key];if(!record(pt)||!number(pt.x,WORLD.minX-100,WORLD.maxX+100)||!number(pt.z,WORLD.minZ-100,WORLD.maxZ+100))return null;}
     }
@@ -103,6 +115,7 @@ export function parseSave(raw:string|null,manifest:Manifest):GameSave|null {
     if(s.conversation!==null){
       const c=s.conversation;if(!record(c)||typeof c.speaker!=='string'||c.speaker.length>200||!Array.isArray(c.lines)||!c.lines.length||c.lines.length>64||c.lines.some(line=>typeof line!=='string'||line.length>1000)||!integer(c.index,0,c.lines.length-1))return null;
       if(c.complete!==null&&!CAMPAIGN.some(m=>m.id===c.complete))return null;
+      if(c.activity!==undefined&&c.activity!==null){const a=c.activity;if(!record(a)||!STORY_ACTIVITIES.some(m=>m.id===a.mission&&integer(a.step,0,m.steps.length-1)))return null;}
     }
     if(s.phase==='dead'&&p.health!==0||s.phase==='playing'&&p.health===0||s.phase==='won'&&(s.mission!=='defend'||p.timer!==0))return null;
     return s as unknown as GameSave;

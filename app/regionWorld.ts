@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { surfaceMaterial, tintGeometry, type SurfaceKind } from './surfaces.ts';
-import { detailedCar, instancedTreeParts } from './naturalAssets.ts';
+import { detailedCar } from './naturalAssets.ts';
+import { compactTreeParts } from './compactTrees.ts';
 import type { Obstacle, Point } from './survival.ts';
 import { BRIDGES, FIELDS, LAKES, REGION_BOUNDS, REGION_LOOT, REGION_POIS, ROAD_LINES, STRUCTURES, TREES, WATER_LINES, PARKED_CARS, SpatialIndex, fieldAt, forestDensity, inLegacy, overlaps, seeded, waterBlocked, waterClearance, roadClearance, type Structure } from './regionPlan.ts';
 import { TERRAIN_STEP, terrainVertexHeight, terrainHeight } from './regionTerrain.ts';
@@ -59,7 +60,8 @@ export function buildRegionWorld(scene:THREE.Scene) {
       const wx=x+ix*CHUNK/divisions,wz=z+iz*CHUNK/divisions,y=terrainVertexHeight(wx,wz),field=fieldAt(wx,wz),forest=forestDensity(wx,wz);
       positions.push(wx,y,wz);color.setHex(field?[0x97916a,0x8b9064,0xa99c75][field.crop]:forest>.3?0x73806a:0x949f7b);
       if(wx>78&&wx<670&&wz>-390&&wz<270)color.lerp(new THREE.Color(0xa7a59b),.65);
-      if(waterClearance(wx,wz)<7)color.setHex(0x858775);
+      const bank=waterClearance(wx,wz);
+      if(bank<3)color.setHex(0x7e8370);else if(bank<9)color.lerp(new THREE.Color(0xaaa28a),1-(bank-3)/6);
       const meadow=Math.sin(wx*.023+Math.sin(wz*.018))*Math.cos(wz*.031);
       color.offsetHSL(meadow*.015,meadow*.045,meadow*.045+Math.sin(wx*.09+wz*.07)*.018);colors.push(color.r,color.g,color.b);
     }
@@ -209,14 +211,12 @@ export function buildRegionWorld(scene:THREE.Scene) {
   for(const p of PARKED_CARS){
     const group=new THREE.Group();group.position.set(p.x,terrainHeight(p.x,p.z),p.z);group.rotation.y=.4;group.add(detailedCar(p.color));at(p.x,p.z).group.add(group);
   }
-  // Eight existing tree variants, batched per chunk and distance level.
+  // Compact shared crowns allow denser stands and a longer woodland silhouette.
   const treeBatches=new Map<string,{chunk:Chunk;trees:typeof TREES;pine:boolean;variant:number}>();
-  for(const tree of TREES){const chunk=at(tree.x,tree.z),key=`${chunk.x},${chunk.z},${tree.species},${tree.variant}`;if(!treeBatches.has(key))treeBatches.set(key,{chunk,trees:[],pine:tree.species==='pine',variant:tree.variant});treeBatches.get(key)!.trees.push(tree);}
+  for(const tree of TREES){const chunk=at(tree.x,tree.z),key=`${chunk.x},${chunk.z},${tree.species}`;if(!treeBatches.has(key))treeBatches.set(key,{chunk,trees:[],pine:tree.species==='pine',variant:0});treeBatches.get(key)!.trees.push(tree);}
   for(const batch of treeBatches.values()){
-    const parts=instancedTreeParts(batch.pine,batch.variant);
-    // The existing medium crown keeps fine texture detail with one quarter of
-    // the twigs; dense regional forests reserve full crowns for original trees.
-    for(let level=0;level<3;level++)for(const [geometry,material] of [[parts.trunk[level],parts.bark],[parts.foliage[Math.min(2,level+1)],parts.leaves]] as const){
+    const parts=compactTreeParts(batch.pine);
+    for(let level=0;level<3;level++)for(const [geometry,material] of [[parts.trunk[level],parts.bark],[parts.foliage[level],parts.leaves]] as const){
       const mesh=new THREE.InstancedMesh(geometry,material,batch.trees.length);mesh.castShadow=level===0;mesh.receiveShadow=true;
       batch.trees.forEach((t,i)=>{transform.position.set(t.x,terrainHeight(t.x,t.z),t.z);transform.rotation.set(0,t.rotation,0);transform.scale.setScalar(t.scale);transform.updateMatrix();mesh.setMatrixAt(i,transform.matrix);});mesh.computeBoundingSphere();batch.chunk.trees[level].add(mesh);
     }
@@ -228,8 +228,8 @@ export function buildRegionWorld(scene:THREE.Scene) {
   let active=0,activeTrees=0;
   const update=(x:number,z:number)=>{active=0;activeTrees=0;
     for(const c of chunks.values()){const d=Math.hypot(c.x-x,c.z-z),near=d<235;c.group.visible=near;c.detail.visible=d<130;c.distant.visible=d<650;c.terrain.visible=d<1080;if(near)active++;
-      const level=d<65?0:d<130?1:2;
-      c.trees.forEach((g,i)=>{g.visible=i===level&&d<220;if(g.visible)for(const mesh of g.children)activeTrees+=(mesh as THREE.InstancedMesh).count/2;});
+      const level=d<75?0:d<155?1:2;
+      c.trees.forEach((g,i)=>{g.visible=i===level&&d<380;if(g.visible)for(const mesh of g.children)activeTrees+=(mesh as THREE.InstancedMesh).count/2;});
     }
   };
   update(-61,-35);

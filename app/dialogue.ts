@@ -18,12 +18,12 @@ export function subtitleLines(text: string | readonly string[]): string[] {
 }
 
 export const MARA_INTRO = [
-  'Elias. Wir sind in Fichtenau, dem entferntesten Dorf von der Oststadt. Konvoi 2 fährt noch außerhalb der Sperrzone. Wenn wir ihn erreichen, kann er uns abholen.',
-  'Dr. Falk ließ seine Versuche in der alten Klinik weiterlaufen, obwohl der Abbruch befohlen war. Seitdem sind die Straßen voller Infizierter.',
-  'Dr. Weber konnte eine stabile Dosis Gegenmittel retten. Unser Ziel ist klar: Wir bringen sie und die Überlebenden zum Konvoi.',
+  'Elias. Willkommen in Fichtenau. Die Menschen hier brauchen Wasser, Verbände und einen sicheren Platz für die Nacht. Packen wir zuerst hier an.',
+  'Die Straßen sind voller Infizierter. Zwischen den Dörfern sind noch Menschen gestrandet. Wir helfen ihnen Schritt für Schritt.',
+  'Dr. Weber behandelt die Kranken in der Stadt. Über ihre Arbeit wissen wir bisher wenig. Zuerst verbinden wir die Helfer und sichern unsere Rückzugsorte.',
   'Zuerst brauchen wir Funkkontakt. Der Generator unseres Lagers ist leer. Im Fichtenauer Holzlager liegt eine Brennstoffzelle. Bring sie zu mir zurück.',
   'Hier ist die Karte der ganzen Region. Öffne sie mit M. Die Brennstoffzelle liegt noch hier im Dorf; das Missionszeichen führt dich immer zum nächsten Schritt.',
-  'Nimm den Verband neben dem Lager und trink von deinem Wasser. Draußen musst du deine Wunden selbst versorgen können.',
+  'Nimm die Verbände neben dem Lager. Jonas hat sich am Arm verletzt; versorge ihn mit E. Trink danach von deinem Wasser, bevor du aufbrichst.',
   'Jonas hat eine Pistole und eine Axt für dich bereitgelegt. Prüfe beide an seiner Scheibe, bevor du aufbrichst. Infizierte folgen Schüssen; die Axt ist leiser.',
   'Ich bleibe am Funkgerät. Sichere die Forstunterkunft, bevor du weiterziehst. In jedem Gebiet steht ein Haus, dessen Fenster, Türen und Schlafplatz du selbst sichern kannst.',
   'Tore öffnen sich mit E am rechten Pfosten. Verlasse das Lager durch das südliche Tor. An den Häusern verbrauchst du Bretter für Fenster, Ersatzteile für Türen und eine Ration für das Bett.',

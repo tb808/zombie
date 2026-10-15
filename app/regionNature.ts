@@ -36,7 +36,8 @@ export function planRegionNature(extraFootprints:readonly Obstacle[]=[],extraRes
     for(let n=0;n<count;n++){
       const seed=serial*7+n,angle=seeded(seed*89)*Math.PI*2,distance=n?1.8+seeded(seed*97)*3:0;
       const wx=cx+Math.cos(angle)*distance,wz=cz+Math.sin(angle)*distance;
-      const kind:NatureKind=n===0&&seeded(seed*101)<.23?'rock':n>0?(forest>.3?'fern':'grass'):'shrub';
+      const ridge=Math.min(1,natureSupport(cx,cz,1).slope*3);
+      const kind:NatureKind=n===0&&seeded(seed*101)<.23+ridge*.2?'rock':n>0?(forest>.3?'fern':'grass'):'shrub';
       const radius=kind==='rock'?.55+seeded(seed*103)*1.65:kind==='shrub'?.65+seeded(seed*107)*.75:kind==='fern'?.45+seeded(seed*109)*.5:.35+seeded(seed*109)*.4;
       const height=kind==='rock'?radius*(.6+seeded(seed*113)*.55):kind==='shrub'?.8+seeded(seed*127)*.85:kind==='fern'?.45+seeded(seed*131)*.4:.3+seeded(seed*131)*.4;
       // Include the crown's downhill shift when the whole plant follows a slope.
@@ -49,6 +50,13 @@ export function planRegionNature(extraFootprints:readonly Obstacle[]=[],extraRes
       const p:NaturePlacement={...footprint,kind,radius,height,y:support.y,normal:support.normal,rotation:seeded(seed*137)*Math.PI*2,variant:seed%3};
       out.push(p);occupied.add(p);
     }
+  }
+  // Larger local outcrops break up open hills without filling cultivated fields.
+  for(const [cx,cz]of [[-1025,500],[-880,-570],[-210,570],[140,-650],[1025,-550],[1020,100],[-480,410]])for(let i=0;i<18;i++){
+    const seed=91001+serial++,angle=i*2.399,r=Math.sqrt(i)*4,x=cx+Math.cos(angle)*r,z=cz+Math.sin(angle)*r,radius=1.8+seeded(seed*13)*2.5,height=radius*(.7+seeded(seed*17)*.4),extent=radius+height*.46,footprint={x,z,hx:extent,hz:extent};
+    if(inLegacy(x,z,8)||roadClearance(x,z)<extent+3||waterClearance(x,z)<extent+3||fieldAt(x,z)||zoneAt(x,z)?.biome==='city'||occupied.query(x,z,extent+.6).some(o=>overlaps(footprint,o,.6))||reserved.some(p=>Math.hypot(p.x-x,p.z-z)<extent+3))continue;
+    const support=natureSupport(x,z,radius);if(support.slope>.46||support.error>.09)continue;
+    const p:NaturePlacement={...footprint,kind:'rock',radius,height,y:support.y,normal:support.normal,rotation:angle,variant:seed%3};out.push(p);occupied.add(p);
   }
   return out;
 }
@@ -97,8 +105,8 @@ function natureGeometry(kind:NatureKind,variant:number){
 export function buildRegionNature(scene:THREE.Scene,plan:readonly NaturePlacement[]){
   const root=new THREE.Group();root.name='regional-nature';scene.add(root);
   const cells=new Map<string,{group:THREE.Group;x:number;z:number;distance:number;points:NaturePlacement[]}>();
-  for(const p of plan){const ix=Math.floor(p.x/50),iz=Math.floor(p.z/50),key=`${ix},${iz},${p.kind},${p.variant}`;
-    if(!cells.has(key)){const group=new THREE.Group();group.name=`nature-${key}`;root.add(group);cells.set(key,{group,x:ix*50+25,z:iz*50+25,distance:p.kind==='rock'?235:p.kind==='shrub'?160:85,points:[]});}cells.get(key)!.points.push(p);
+  for(const p of plan){const ix=Math.floor(p.x/80),iz=Math.floor(p.z/80),key=`${ix},${iz},${p.kind}`;
+    if(!cells.has(key)){const group=new THREE.Group();group.name=`nature-${key}`;root.add(group);cells.set(key,{group,x:ix*80+40,z:iz*80+40,distance:p.kind==='rock'?250:p.kind==='shrub'?150:75,points:[]});}cells.get(key)!.points.push(p);
   }
   const stone=surfaceMaterial('stone',0xffffff,{vertexColors:true,roughness:.95});
   const leaves=instancedTreeParts(false,0).leaves;
@@ -106,17 +114,17 @@ export function buildRegionNature(scene:THREE.Scene,plan:readonly NaturePlacemen
   const geometries=new Map<string,THREE.BufferGeometry>(),object=new THREE.Object3D(),up=new THREE.Vector3(0,1,0),normal=new THREE.Vector3(),spin=new THREE.Quaternion();
   let meshes=0;
   for(const cell of cells.values()){
-    const first=cell.points[0],key=`${first.kind}-${first.variant}`;
-    if(!geometries.has(key))geometries.set(key,natureGeometry(first.kind,first.variant));
+    const first=cell.points[0],key=first.kind;
+    if(!geometries.has(key))geometries.set(key,natureGeometry(first.kind,0));
     const mesh=new THREE.InstancedMesh(geometries.get(key)!,first.kind==='rock'?stone:first.kind==='shrub'?leaves:undergrowth,cell.points.length);
     cell.points.forEach((p,i)=>{
       object.position.set(p.x,p.y-(p.kind==='rock'?.025:0),p.z);normal.set(...p.normal);
       object.quaternion.setFromUnitVectors(up,normal).multiply(spin.setFromAxisAngle(up,p.rotation));
-      object.scale.set(p.radius,p.height,p.radius);object.updateMatrix();mesh.setMatrixAt(i,object.matrix);
+      object.scale.set(p.radius,p.height,p.radius);object.updateMatrix();mesh.setMatrixAt(i,object.matrix);mesh.setColorAt(i,new THREE.Color([0xffffff,0xe0dcca,0xd5e5ce][p.variant]));
     });mesh.computeBoundingSphere();mesh.castShadow=first.kind==='rock'||first.kind==='shrub';mesh.receiveShadow=true;cell.group.add(mesh);meshes++;
   }
   let activeCells=0;
-  const update=(x:number,z:number)=>{activeCells=0;for(const c of cells.values()){c.group.visible=Math.hypot(x-c.x,z-c.z)<c.distance+36;if(c.group.visible)activeCells++;}};
+  const update=(x:number,z:number)=>{activeCells=0;for(const c of cells.values()){c.group.visible=Math.hypot(x-c.x,z-c.z)<c.distance+57;if(c.group.visible)activeCells++;}};
   update(0,0);
   const counts=plan.reduce((a,p)=>(a[p.kind]++,a),{rock:0,shrub:0,fern:0,grass:0});
   return {root,plan,update,stats:()=>({...counts,meshes,cells:cells.size,activeCells})};

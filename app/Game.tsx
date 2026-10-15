@@ -18,11 +18,13 @@ import { WORLD, ZOMBIES, WEAPONS, freshArsenal, makeBrain, think, transition, fi
 import { ZombieAnimator } from './zombieAnimation';
 import { CITY_PLACES, CITY_ROADS, CITY_LOOT, CITY_NPCS, DISCOVERIES, buildCity } from './city';
 import WorldMap, { type MapNpc } from './WorldMap';
+import InventoryPanel, { ItemIcon } from './InventoryPanel';
+import { inventoryItemColor, inventoryItemName, isWeaponItem, moveInventoryItem, newInventoryLayout, syncInventoryLayout, type InventoryItem, type InventoryLayout, type InventorySlot } from './inventory';
 import { MARA_INTRO, subtitleLines, type Dialogue } from './dialogue';
 import { assetPath } from './assetPath';
 import { daylightAt, REFUGES, refugeAt, refugeWalls, footprintsOverlap } from './environment';
-import { CAMPAIGN, CHAPTERS, STORY_GOAL, missionIndex, type CampaignId } from './campaign';
-import { SAVE_KEY, lootKey, parseSave, pickProgress, type GameSave } from './saveGame';
+import { CAMPAIGN, CHAPTERS, STORY_GOAL, storyGoal, missionIndex, type CampaignId } from './campaign';
+import { SAVE_KEY, lootKey, parseSave, pickProgress, type GameSave, type SavedConversation } from './saveGame';
 import { SAFEHOUSES, HOUSE_LOOT, newHouses, houseReady, houseProtected, houseContains, canSleep, nextHour } from './safehouses';
 import { detailMaterial, surfaceMaterial, releaseSurfaceTextures } from './surfaces';
 import { detailedAsset, foliageTime, createTreeDetailController } from './naturalAssets';
@@ -30,6 +32,8 @@ import { buildWorldDetail } from './worldDetail';
 import { compileScene, makeLocalLightPool, renderPixelRatio, ResolutionBudget } from './renderBudget';
 import { buildRegionWorld, regionalCollision } from './regionWorld';
 import { buildRegionNature, planRegionNature } from './regionNature';
+import { buildShoreline, planShoreline } from './shoreline';
+import { buildWildlife, planWildlife } from './wildlife';
 import { REGION_LOOT, REGION_POIS, REGION_SIGNS, ROAD_LINES, BRIDGES, STRUCTURES, WORLD_ZONES, inLegacy, riskAt, zoneAt } from './regionPlan';
 import { terrainHeight } from './regionTerrain';
 import { buildSettlementDetail } from './settlementDetail';
@@ -37,6 +41,9 @@ import { nightThreat, roamingZombie, uvScheduled, uvProtectedAt } from './nightS
 import { buildSafehouseEntrances } from './safehouseScene';
 import { START_POINTS, START_HOUSE, START_CAMP } from './shelterSites';
 import { REGIONAL_STORY } from './regionalStory';
+import { STORY_ACTIVITIES, newActivityProgress, activityStep, securedAreas, reliefPressure, type ActivityStates, type ActivityMissionId } from './storyActivities';
+import { buildActivityProps } from './activityScene';
+import { createLootVisualLibrary, type LootVisualKind } from './lootVisuals';
 const WORLD_LOOT: {kind:LootKind;x:number;z:number;count:number;y?:number}[] = [...LOOT,...CITY_LOOT,...HOUSE_LOOT,...REGION_LOOT];
 const EXPLORABLE_IDS = [...CITY_PLACES,...REGION_POIS,...WORLD_ZONES].map(p=>p.id);
 
@@ -44,15 +51,15 @@ type Screen = 'title' | 'playing' | 'paused' | 'dead' | 'won' | 'journal' | 'she
 type Hud = {
   health: number; ammo: number; reserve: number; stamina: number; stage: number;
   kills: number; timer: number; prompt: string; reloading: boolean; distance: number;
-  battery: number; inventory: ReturnType<typeof newInventory>; discovered: number[]; boosted: number; repaired: boolean; x: number; z: number;
+  battery: number; inventory: ReturnType<typeof newInventory>; inventoryLayout: InventoryLayout; discovered: number[]; boosted: number; repaired: boolean; x: number; z: number;
   thirst: number; infection: number; protection: number; powerQuest: number; benQuest: number; evidence: string[]; visited: string[]; keycard: boolean; elapsed: number; hasMap: boolean;
   weapon: WeaponKind; arsenal: ReturnType<typeof freshArsenal>; hit: number; damageFlash: number; aiming: boolean;
-  houses: ReturnType<typeof newHouses>; respawn: string | null; learned: string[]; talkedTo: string[];
+  houses: ReturnType<typeof newHouses>; respawn: string | null; learned: string[]; talkedTo: string[]; activities:ActivityStates;
 };
 type Enemy = {
   group: THREE.Group; hitbox: THREE.Mesh; health: number;
   alive: boolean; mixer?: THREE.AnimationMixer; phase: number; deathTime: number;
-  kind: ZombieKind; brain: Brain; animator?: ZombieAnimator; path: Point[]; pathTime: number; lastPathTarget: Point; visual: THREE.Group; head: THREE.Mesh;
+  kind: ZombieKind; brain: Brain; animator?: ZombieAnimator; path: Point[]; pathTime: number; lastPathTarget: Point; visual: THREE.Group; head: THREE.Mesh;encounter?:string;
 };
 
 const MODEL = assetPath('/models/kenney/');
@@ -85,15 +92,22 @@ const modelBaseHeight = (name: string) => {
   return 1;
 };
 const START = new THREE.Vector3(START_POINTS.player.x,1.68,START_POINTS.player.z);
-const INITIAL_HUD: Hud = { health: 100, ammo: 12, reserve: 48, stamina: 100, stage: 0, kills: 0, timer: 40, prompt: '', reloading: false, distance: 8, battery: 100, inventory: newInventory(), discovered: [], boosted: 0, repaired: false, x: START.x, z: START.z, weapon: 'pistol', arsenal: freshArsenal(), hit: 0, damageFlash: 0, aiming: false, thirst: 100, infection: 0, protection: 0, powerQuest: 0, benQuest: 0, evidence: [], visited: [], keycard: false, elapsed: 0, hasMap: false, houses: newHouses(), respawn: null, learned: [], talkedTo: [] };
+const INITIAL_HUD: Hud = { health: 100, ammo: 12, reserve: 48, stamina: 100, stage: 0, kills: 0, timer: 40, prompt: '', reloading: false, distance: 8, battery: 100, inventory: newInventory(), inventoryLayout: newInventoryLayout(newInventory(), freshArsenal()), discovered: [], boosted: 0, repaired: false, x: START.x, z: START.z, weapon: 'pistol', arsenal: freshArsenal(), hit: 0, damageFlash: 0, aiming: false, thirst: 100, infection: 0, protection: 0, powerQuest: 0, benQuest: 0, evidence: [], visited: [], keycard: false, elapsed: 0, hasMap: false, houses: newHouses(), respawn: null, learned: [], talkedTo: [], activities:{} };
 
 const OBJECTIVES = CAMPAIGN.map(m => ({ ...m, target: new THREE.Vector3(m.x, 0, m.z) }));
+const objectiveAt=(stage:number,states:ActivityStates,learned:readonly string[])=>{
+  const base=OBJECTIVES[stage],a=base.activity,state=a?states[a.id]:undefined,step=a?activityStep(a,state):undefined;
+  if(base.id==='supplies'&&learned.includes('supplies'))return {...base,target:new THREE.Vector3(START_POINTS.jonas.x,0,START_POINTS.jonas.z),detail:'E bei Jonas · versorge seinen verletzten Arm mit 1 Verband. I zeigt deine Vorräte.'};
+  if(!a||!step)return base;
+  const p=step.kind==='escort'&&!state?.started?(state?.actor??a.actor??step):step;
+  return {...base,target:new THREE.Vector3(p.x,0,p.z),detail:`${(state?.step??0)+1}/${a.steps.length} · ${step.label}`};
+};
 const DEFENSE = missionIndex('defend'), RESCUE = missionIndex('noah'), TOWER = missionIndex('tower');
 
 const STORY = {
   fuel: ['ELIAS', ['Die Brennstoffzelle aus dem Holzlager ist unbeschädigt. Damit bekommt Mara das Funkgerät wieder an.','Zurück zum Rangerlager in Fichtenau. Erst dann wissen wir, wer draußen noch lebt.']],
-  returnFuel: ['MARA', ['Die Zelle passt. Der Generator läuft – ich schalte den Notkanal ein.','Da ist ein abgebrochener Hilferuf von Noah. Er hat mit Dr. Weber gearbeitet. Die Aufzeichnungen vom Waldsee können zeigen, wo er jetzt ist.','Ich brauche die Nacht, um die Meldungen abzugleichen. Sichere die Forstunterkunft hier im Dorf: vier Fenster, beide Türen und ein vorbereitetes Bett.','Aktiviere den Ort als Respawnpunkt, prüfe deine Lampe und schlafe bis zum Morgen. Dann beginnt der Weg durch die Region. Weitere einnehmbare Häuser markieren wir auf der Karte.']],
-  noah: ['NOAH', ['Du bist aus Fichtenau gekommen? Danke. Weber behandelt die Evakuierten in St. Anna. Sie weiß, welche Dosis noch stabil ist.','Ihr Kühltransport W-07 ging bei der Evakuierung verloren. Bevor wir die Dosis bergen, müssen wir herausfinden, wo der geeignete Behälter gelandet ist.','Die Spur beginnt an den westlichen Höfen, führt durch Kornweiler und den Hochforst und endet in der Oststadt. Wir folgen den Übergabenotizen, nicht den Gerüchten.','Ich komme mit. Sichere unterwegs Häuser, wenn wir rasten müssen. Öffne Türen und Tore wieder, damit ich dir folgen kann.']],
+  returnFuel: ['MARA', ['Die Zelle passt. Der Generator läuft – ich schalte den Notkanal ein.','Das Funkgerät läuft. Eva am Waldsee hat Verletzte aufgenommen und braucht Hilfe. Unterwegs sind weitere Menschen gestrandet.','Ich organisiere die Helfer über Nacht. Sichere zuerst unsere Forstunterkunft: vier Fenster, beide Türen und ein vorbereitetes Bett.','Aktiviere den Ort als Respawnpunkt, prüfe deine Lampe und schlafe bis zum Morgen. Dann beginnt der Weg durch die Region. Weitere einnehmbare Häuser markieren wir auf der Karte.']],
+  noah: ['NOAH', ['Ihr habt den Markt gesichert und seid bis hierher gekommen? Danke. Ich wollte die letzten Nachzügler schützen und wurde eingeschlossen.','Zwischen hier und Kornweiler warten noch Menschen. Ohne Lebensmittel, Wasser und sichere Schlafplätze schaffen sie es nicht zur Stadt.','Wir helfen zuerst auf den Weiden und Höfen. Danach verbinden wir die Dörfer mit Webers Krankenstation. Vielleicht weiß sie inzwischen mehr über die Infektion.','Ich komme mit. Sichere unterwegs Häuser, wenn wir rasten müssen. Öffne Türen und Tore wieder, damit ich dir folgen kann.']],
   serum: ['DR. WEBER · FUNK', ['C-07. Das ist der Behälter aus meinem Lagerprotokoll. Die Dosis ist stabil – lass ihn versiegelt.','Jetzt habt ihr, wofür wir gearbeitet haben. Bringt Noah und den Behälter zum Funkturm. Mara führt den Konvoi zu euch.','Der Sender verliert Leistung. Mit drei Ersatzteilen von der Klinik und dem Turm verstärkst du das Signal, bevor ihr den Notruf startet.']],
   tower: ['MARA · FUNK', 'Sender läuft. Der Konvoi braucht vierzig Sekunden – und jedes Ding in Tannwald kennt jetzt unsere Position.'],
 } as const;
@@ -108,7 +122,7 @@ const LOCATIONS = [
 
 export default function Game() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const apiRef = useRef<{ start: () => void; continue: () => void; menu: () => void; resume: () => void; journal: () => void; nextDialogue: () => void; respawn: () => void; shelter: (action: 'claim' | 'respawn' | 'wait' | 'sleep') => void } | null>(null);
+  const apiRef = useRef<{ start: () => void; continue: () => void; menu: () => void; resume: () => void; journal: () => void; moveItem: (from: InventorySlot, to: InventorySlot) => void; useItem: (item: InventoryItem) => void; nextDialogue: () => void; respawn: () => void; shelter: (action: 'claim' | 'respawn' | 'wait' | 'sleep') => void } | null>(null);
   const [mapBuildings, setMapBuildings] = useState<{ x: number; z: number; hx: number; hz: number }[]>([]);
   const [mapNpcs, setMapNpcs] = useState<MapNpc[]>([]);
   const [screen, setScreen] = useState<Screen>('title');
@@ -297,6 +311,8 @@ export default function Game() {
     let worldDetail:ReturnType<typeof buildWorldDetail>|undefined;
     let settlementDetail:Awaited<ReturnType<typeof buildSettlementDetail>>;
     let regionNature:ReturnType<typeof buildRegionNature>|undefined;
+    let shoreline:ReturnType<typeof buildShoreline>|undefined;
+    let wildlife:ReturnType<typeof buildWildlife>|undefined;
     let treeDetail:ReturnType<typeof createTreeDetailController>|undefined;
     const place = (name: string, x: number, z: number, scale = 1, rotation = 0, y = 0, required = false) => {
       const anchor = new THREE.Group();
@@ -553,13 +569,14 @@ export default function Game() {
     let noahAnimation: Awaited<ReturnType<typeof loadCharacter>> | undefined;
     let noahMoving = false;
     let noahPath: Point[] = [], noahPathTime = 0;
-    const makeNpc = (anchor: THREE.Group, skin: string, animation: 'idle' | 'run', accent: number) => {
+    const makeNpc = (anchor: THREE.Group, skin: string, animation: 'idle' | 'run', accent: number, ready?:(c:Awaited<ReturnType<typeof loadCharacter>>)=>void) => {
       const fallback = new THREE.Mesh(new THREE.CapsuleGeometry(0.38, 0.8, 4, 7), new THREE.MeshStandardMaterial({ color: accent })); fallback.position.y = 0.9; anchor.add(fallback);
       loadCharacter(skin, animation).then((character) => {
         const { model, mixer } = character;
         if (disposed) return; fallback.visible = false;
         anchor.add(model); npcMixers.push(mixer);
         if (anchor === npcAnchors.noah) noahAnimation = character;
+        ready?.(character);
         const badge = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, 0.05), new THREE.MeshBasicMaterial({ color: accent })); badge.position.set(0, 1.45, -0.26); anchor.add(badge);
       }).catch(() => reportAssetError(skin));
     };
@@ -568,15 +585,26 @@ export default function Game() {
       const anchor = new THREE.Group(); anchor.position.set(npc.x,terrainHeight(npc.x,npc.z),npc.z); scene.add(anchor);
       makeNpc(anchor,npc.skin,'idle',npc.color); return { ...npc, anchor, cooldown: 0 };
     });
+    const activityActors=STORY_ACTIVITIES.flatMap(m=>{
+      if(!m.actor)return [];
+      const anchor=new THREE.Group();anchor.position.set(m.actor.x,terrainHeight(m.actor.x,m.actor.z),m.actor.z);anchor.visible=false;scene.add(anchor);
+      const tool=new THREE.Group(),steel=new THREE.MeshStandardMaterial({color:0xa0adb2,metalness:.65,roughness:.35});
+      const handle=new THREE.Mesh(new THREE.BoxGeometry(.05,.35,.06),steel);handle.position.y=.15;tool.add(handle);
+      const head=new THREE.Mesh(new THREE.TorusGeometry(.075,.025,5,8),steel);head.position.y=.35;tool.add(head);tool.position.set(.36,.9,-.18);tool.visible=false;anchor.add(tool);
+      const cargo=new THREE.Mesh(new THREE.BoxGeometry(.65,.4,.4),new THREE.MeshStandardMaterial({color:0x79a9bf,roughness:.6}));cargo.position.set(.48,.7,-.08);cargo.visible=false;anchor.add(cargo);
+      return [{id:`activity:${m.id}`,mission:m.id,name:m.actor.name,anchor,tool,cargo,loaded:false,moving:false,cooldown:0,path:[] as Point[],pathTime:0,animation:undefined as Awaited<ReturnType<typeof loadCharacter>>|undefined}];
+    });
+    let noahShotCooldown=0;
     const cityClues = DISCOVERIES.map(note => {
       const paper = new THREE.Mesh(new THREE.BoxGeometry(.45,.03,.6),new THREE.MeshStandardMaterial({color:0xe5ddba,emissive:0x6a6042,emissiveIntensity:.3}));
       paper.position.set(note.x,terrainHeight(note.x,note.z)+(note.y??.8),note.z);scene.add(paper);if(note.y===undefined)place('box',note.x,note.z,.9);return paper;
     });
+    const lootVisuals=createLootVisualLibrary();
     const questProps = [
       {id:'fuse',x:181,z:-18,color:0xe2bb64}, {id:'generator',x:120,z:90,color:0x8a9d78},
       {id:'shotgun',x:181,z:-74,color:0xc4ad76}, {id:'rifle',x:181,z:-136,color:0x9fb58c},
       {id:'keycard',x:184,z:-136,color:0x82cfda},
-    ].map(p=>{const object=new THREE.Mesh(new THREE.BoxGeometry(p.id==='generator'?1.6:.7,p.id==='generator'?1.2:.25,.65),new THREE.MeshStandardMaterial({color:p.color,roughness:.7,metalness:.25}));object.position.set(p.x,terrainHeight(p.x,p.z)+.6,p.z);scene.add(object);return {...p,object};});
+    ].map(p=>{const object=p.id==='generator'?new THREE.Mesh(new THREE.BoxGeometry(1.6,1.2,.65),new THREE.MeshStandardMaterial({color:p.color,roughness:.7,metalness:.25})):lootVisuals.create(p.id as LootVisualKind);object.position.set(p.x,terrainHeight(p.x,p.z)+(p.id==='generator'?.6:.035),p.z);scene.add(object);return {...p,object};});
     paintedBoard('STROMNETZ OST / LENZ · SCHULHOF',125,90,'#e5c183');
     const trainingTarget = new THREE.Mesh(new THREE.BoxGeometry(1.15,1.8,.25), new THREE.MeshStandardMaterial({color:0x9b5146,roughness:.8}));
     trainingTarget.position.set(START_POINTS.target.x,terrainHeight(START_POINTS.target.x,START_POINTS.target.z)+1.2,START_POINTS.target.z);scene.add(trainingTarget);
@@ -589,28 +617,18 @@ export default function Game() {
     const markerBeam = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.16, 5, 8, 1, true), new THREE.MeshBasicMaterial({ color: 0xd9ff43, transparent: true, opacity: 0.1, depthWrite: false, side: THREE.DoubleSide })); markerBeam.position.y = 4;
     const markerRing = new THREE.Mesh(new THREE.TorusGeometry(1.1, 0.05, 6, 28), new THREE.MeshBasicMaterial({ color: 0xd9ff43 })); markerRing.rotation.x = Math.PI / 2; markerRing.position.y = 0.05;
     objectiveMarker.add(markerBeam, markerRing);
-    const moveObjectiveMarker = (stage: number) => { const target = OBJECTIVES[stage].target; objectiveMarker.position.set(target.x, terrainHeight(target.x, target.z), target.z); };
+    const moveObjectiveMarker = (stage: number) => { const target = objectiveAt(stage,runtime.activities,runtime.learned).target; objectiveMarker.position.set(target.x, terrainHeight(target.x, target.z), target.z); };
 
-    const fuelBaseY = terrainHeight(START_POINTS.fuel.x,START_POINTS.fuel.z); const fuelCell = new THREE.Group(); fuelCell.position.set(START_POINTS.fuel.x,fuelBaseY,START_POINTS.fuel.z); scene.add(fuelCell);
-    const fuelMesh = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.85, 0.42), new THREE.MeshStandardMaterial({ color: 0xd9ff43, emissive: 0x6c7d1e, emissiveIntensity: 1.2 })); fuelMesh.position.y = 0.55; fuelCell.add(fuelMesh);
-    const serumBaseY = terrainHeight(48, 23); const serum = new THREE.Group(); serum.position.set(48, serumBaseY, 23); scene.add(serum);
-    const serumMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.65, 10), new THREE.MeshStandardMaterial({ color: 0x64d9ff, emissive: 0x238fb1, emissiveIntensity: 1.8, transparent: true, opacity: 0.85 })); serumMesh.position.y = 0.7; serum.add(serumMesh);
-    const routeObjects=REGIONAL_STORY.map(report=>{
-      const action=report.id==='powerRoute'||report.id==='quarry';
-      const object=new THREE.Mesh(new THREE.BoxGeometry(action?.8:.55,action?.65:.08,action?.6:.45),new THREE.MeshStandardMaterial({color:action?0x64b9dc:0xe5ddba,emissive:action?0x125675:0x6a6042,emissiveIntensity:.6}));
-      object.position.set(report.x,terrainHeight(report.x,report.z)+.8,report.z);scene.add(object);
-      paintedBoard(report.id==='powerRoute'?'W-07 / KÜHLANSCHLUSS':report.id==='quarry'?'W-07 / KÜHLBEHÄLTER':'RETTUNGSROUTE / ÜBERGABENOTIZ',report.x+2,report.z+1,'#cde4c1');
-      return {id:report.id,object};
-    });
+    const fuelCell=lootVisuals.create('fuel');fuelCell.position.set(START_POINTS.fuel.x,terrainHeight(START_POINTS.fuel.x,START_POINTS.fuel.z)+.025,START_POINTS.fuel.z);scene.add(fuelCell);
+    const serum=lootVisuals.create('serum');serum.position.set(48,terrainHeight(48,23)+.025,23);scene.add(serum);
+    const activityProps=buildActivityProps(scene,terrainHeight,lootVisuals);
 
     const pickups: { object: THREE.Group; kind: LootKind; count: number; taken: boolean; baseY: number }[] = [];
-    const pickup = (kind: LootKind, x: number, z: number, count: number, y = .28) => {
-      const baseY = terrainHeight(x, z) + y; const object = new THREE.Group(); object.position.set(x, baseY, z);
-      const color = kind in ITEMS ? ITEMS[kind as ItemKind].color : '#e6b95b';
-      const geometry = kind === 'planks' ? new RoundedBoxGeometry(1.5,.22,.5,2,.015) : kind === 'battery' || kind === 'flare' ? new THREE.CylinderGeometry(0.12, 0.12, 0.55, 24) : new RoundedBoxGeometry(0.5, 0.28, 0.35,3,.025);
-      const mesh = new THREE.Mesh(geometry,surfaceMaterial(kind==='planks'?'wood':kind==='medkit'||kind==='ration'||kind==='armor'?'fabric':'metal',color,{emissive:color,emissiveIntensity:.14})); object.add(mesh);
-      if (kind === 'medkit') { for (const [w, h] of [[0.28, 0.065], [0.065, 0.2]]) { const cross = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.02), new THREE.MeshBasicMaterial({ color: 0xffffff })); cross.position.z = 0.185; object.add(cross); } }
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.02, 4, 20), new THREE.MeshBasicMaterial({ color })); ring.rotation.x = Math.PI / 2; ring.position.y = -0.18; object.add(ring);
+    const pickup = (kind: LootKind, x: number, z: number, count: number, y?:number) => {
+      // Raised interior loot rests on the open crate's .24 m high base.
+      const baseY=terrainHeight(x,z)+(y===undefined?.025:Math.max(.025,y-.235));
+      const object=lootVisuals.create(kind);object.position.set(x,baseY,z);
+      object.rotation.y=Math.sin(x*12.7+z*4.1)*.45;
       scene.add(object); pickups.push({ object, kind, count, taken: false, baseY });
     };
     WORLD_LOOT.forEach(({ kind, x, z, count, y }) => pickup(kind, x, z, count, y));
@@ -630,17 +648,20 @@ export default function Game() {
     const center = new THREE.Vector2(0, 0);
     let yaw = 0, pitch = 0, bob = 0, recoil = 0, muzzleTime = 0, locationTime = 0;
     let audio: AudioContext | null = null;
-    const freshRuntime = () => ({ ...INITIAL_HUD, houses:newHouses(),learned:[] as string[],talkedTo:[] as string[],inventory: newInventory(), arsenal: freshArsenal(), evidence: [] as string[], visited: [] as string[], discovered: [] as number[], active: false, spawn: 12, hudTick: 0, invulnerable: 0, reloadLeft: 0, locationName: '', noticeTime: 0, elapsed: 0, ambientTime: 8, shotCooldown: 0, eventTime: 42, eventNumber: 0 });
+    const freshRuntime = () => ({ ...INITIAL_HUD, houses:newHouses(),learned:[] as string[],talkedTo:[] as string[],activities:{} as ActivityStates,inventory: newInventory(), inventoryLayout: newInventoryLayout(newInventory(), freshArsenal()), arsenal: freshArsenal(), evidence: [] as string[], visited: [] as string[], discovered: [] as number[], active: false, spawn: 12, hudTick: 0, invulnerable: 0, reloadLeft: 0, locationName: '', noticeTime: 0, elapsed: 0, ambientTime: 8, shotCooldown: 0, eventTime: 42, eventNumber: 0 });
     let runtime = freshRuntime();
     let journalOpen = false;
-    let conversation: (Dialogue & { complete:CampaignId|null }) | null = null;
+    let conversation: SavedConversation | null = null;
     let started=false, lastSaveAt=0;
     let shelterId: string | null = null;
     const protectedHouseAt = (x:number,z:number,margin=0) => SAFEHOUSES.find(h => houseProtected(runtime.houses[h.id]) && houseContains(h,x,z,margin));
     const protectedAt = (x:number,z:number,margin=0) => uvProtectedAt(runtime.elapsed,runtime.houses,x,z,margin);
+    const localRisk=(x:number,z:number)=>Math.max(0,riskAt(x,z)-(securedAreas(runtime.learned).includes(zoneAt(x,z)?.id??'')?1:0));
+    const localPressure=(x:number,z:number)=>reliefPressure(localRisk(x,z),securedAreas(runtime.learned).includes(zoneAt(x,z)?.id??''));
     let uvWasScheduled=uvScheduled(runtime.elapsed);
     const syncCampaign = () => {
       const completed = (id:string) => {
+        if(id==='supplies')return runtime.learned.includes('supplies')&&runtime.learned.includes('jonas-treated');
         if(id==='house')return runtime.houses[START_HOUSE].claimed;
         if(id==='keycard')return runtime.keycard;
         if(id==='planks')return runtime.learned.includes('planks')||runtime.houses[START_HOUSE].claimed;
@@ -684,22 +705,22 @@ export default function Game() {
     };
     const pathBetween = (a:Point,b:Point,radius=.48) => findPath(a,b,actorObstacles(a,b),radius);
     const visibleFrom = (a: THREE.Vector3, b: THREE.Vector3) => !segmentBlocked(a.x, a.z, b.x, b.z, actorObstacles(a,b,0,true));
-    const snapshotHud = () => {setHud({ ...runtime, houses:structuredClone(runtime.houses),learned:[...runtime.learned],talkedTo:[...runtime.talkedTo],inventory: { ...runtime.inventory }, discovered: [...runtime.discovered], health: Math.ceil(runtime.health), stamina: Math.round(runtime.stamina), timer: Math.ceil(runtime.timer), x: camera.position.x, z: camera.position.z });saveGame();};
-    const openJournal = (note?: number) => {
+    const snapshotHud = () => {runtime.inventoryLayout = syncInventoryLayout(runtime.inventoryLayout, runtime.inventory, runtime.arsenal);setHud({ ...runtime,inventoryLayout: structuredClone(runtime.inventoryLayout),activities:structuredClone(runtime.activities), houses:structuredClone(runtime.houses),learned:[...runtime.learned],talkedTo:[...runtime.talkedTo],inventory: { ...runtime.inventory }, discovered: [...runtime.discovered], health: Math.ceil(runtime.health), stamina: Math.round(runtime.stamina), timer: Math.ceil(runtime.timer), x: camera.position.x, z: camera.position.z });saveGame();};
+    const openJournal = (note?: number, tab?: 'map' | 'inventory') => {
       if (conversation) return;
-      if(runtime.hasMap)learn('map');
+      if(runtime.hasMap && tab !== 'inventory')learn('map');
       const contacts = [
         { id: 'mara', name: 'Mara', anchor: npcAnchors.mara },
         { id: 'noah', name: 'Noah', anchor: npcAnchors.noah },
-        ...cityNpcs,
+        ...cityNpcs,...activityActors,
       ];
       setMapNpcs(contacts.filter(npc => runtime.talkedTo.includes(npc.id)).map(npc => ({ id: npc.id, name: npc.name, x: npc.anchor.position.x, z: npc.anchor.position.z })));
       setMapBuildings(mapFootprints.map(building => ({ ...building })));
-      runtime.active = false; journalOpen = true; keys.clear(); triggerHeld = false; runtime.aiming = false; snapshotHud();saveGame(true);
-      if (note !== undefined) { setSelectedNote(note); setJournalTab('notes'); } else setJournalTab(runtime.hasMap ? 'map' : 'inventory');
+      runtime.active = false; journalOpen = true; keys.clear(); triggerHeld = false; runtime.aiming = false; setNotice(''); snapshotHud();saveGame(true);
+      if (note !== undefined) { setSelectedNote(note); setJournalTab('notes'); } else setJournalTab(tab ?? (runtime.hasMap ? 'map' : 'inventory'));
       setScreen('journal'); document.exitPointerLock?.();
     };
-    const resumeGame = () => { journalOpen = false; shelterId=null;setSelectedHouse(null);runtime.active = true; triggerHeld=false;runtime.aiming=false; keys.clear(); setScreen('playing'); audio?.resume(); canvas.requestPointerLock?.()?.catch(() => undefined); };
+    const resumeGame = () => { if (journalOpen) saveGame(true); journalOpen = false; shelterId=null;setSelectedHouse(null);runtime.active = true; triggerHeld=false;runtime.aiming=false; keys.clear(); setScreen('playing'); audio?.resume(); canvas.requestPointerLock?.()?.catch(() => undefined); };
 
     const tone = (frequency: number, duration: number, type: OscillatorType = 'square', volume = 0.035) => {
       if (!audio) return;
@@ -715,12 +736,12 @@ export default function Game() {
       gain.gain.setValueAtTime(volume/(1+distance*.12),audio.currentTime);gain.gain.exponentialRampToValueAtTime(.001,audio.currentTime+duration);
       source.connect(filter).connect(gain).connect(pan).connect(audio.destination);source.start(0,Math.random());source.stop(audio.currentTime+duration);
     };
-    const say = (entry: readonly [string, string | readonly string[]], complete:CampaignId|null=null) => {
-      conversation = { speaker: entry[0], lines: subtitleLines(entry[1]), index: 0, complete };
+    const say = (entry: readonly [string, string | readonly string[]], complete:CampaignId|null=null,activity:SavedConversation['activity']=null) => {
+      conversation = { speaker: entry[0], lines: subtitleLines(entry[1]), index: 0, complete,activity };
       keys.clear(); triggerHeld = false; runtime.aiming = false; setLocation(null);
       const contact = entry[0] === 'MARA' ? { id: 'mara', anchor: npcAnchors.mara }
         : entry[0] === 'NOAH' ? { id: 'noah', anchor: npcAnchors.noah }
-        : cityNpcs.find(npc => npc.name === entry[0] || npc.name.split(' · ')[0] === entry[0]);
+        : [...cityNpcs,...activityActors].find(npc => npc.name === entry[0] || npc.name.split(' · ')[0] === entry[0]);
       const speaker = contact?.anchor;
       if (speaker && contact) {
         if (horizontalDistance(camera.position, speaker.position) < 5 && !runtime.talkedTo.includes(contact.id)) runtime.talkedTo.push(contact.id);
@@ -740,17 +761,17 @@ export default function Game() {
         conversation.index++;
         setDialogue({ speaker: conversation.speaker, lines: conversation.lines, index: conversation.index });
       } else {
-        const complete = conversation.complete;
+        const complete = conversation.complete,activity=conversation.activity;
         conversation = null; setDialogue(null); keys.clear(); triggerHeld = false;
-        if(complete)completeStory(complete);snapshotHud();
+        if(complete)completeStory(complete);if(activity)finishActivityStep(activity.mission,activity.step);snapshotHud();
       }
       saveGame(true);
     };
 
-    const spawnEnemy = (x?: number, z?: number, tougher = false, requestedKind?: ZombieKind, restoring=false) => {
-      const risk=riskAt(camera.position.x,camera.position.z);
+    const spawnEnemy = (x?: number, z?: number, tougher = false, requestedKind?: ZombieKind, restoring=false,encounter?:string) => {
+      const risk=localRisk(camera.position.x,camera.position.z);
       const danger=nightThreat(runtime.elapsed);
-      const cap=x!==undefined||runtime.stage===DEFENSE?40:Math.min(40,[12,22,32,40][risk]+Math.round(danger.strength*8));
+      const cap=x!==undefined||runtime.stage===DEFENSE?40:Math.min(40,localPressure(camera.position.x,camera.position.z).cap+Math.round(danger.strength*8));
       if (enemies.filter(e => e.alive).length >= cap) return;
       const angle = Math.random() * Math.PI * 2, distance = 30 + Math.random() * 16;
       const spawnX = THREE.MathUtils.clamp(x ?? camera.position.x + Math.cos(angle) * distance, WORLD.minX + 2, WORLD.maxX - 2);
@@ -769,7 +790,7 @@ export default function Game() {
       head.position.set(0, kind === 'crawler' ? .48 : 1.58 * scale, kind === 'crawler' ? 1.1 : 0);
       group.add(hitbox, head); enemyHitboxes.push(hitbox, head);
       const phase = Math.random() * Math.PI * 2;
-      const enemy: Enemy = { group, visual, head, hitbox, kind, brain: makeBrain(group.position, phase, kind !== 'crawler' && roll < .18), path: [], pathTime: phase % 1, lastPathTarget: {x:spawnX,z:spawnZ}, health: spec.health, alive: true, phase, deathTime: 0 };
+      const enemy: Enemy = { group, visual, head, hitbox, kind,encounter, brain: makeBrain(group.position, phase, kind !== 'crawler' && roll < .18), path: [], pathTime: phase % 1, lastPathTarget: {x:spawnX,z:spawnZ}, health: spec.health, alive: true, phase, deathTime: 0 };
       hitbox.userData.enemy = enemy; head.userData.enemy = enemy; head.userData.head = true; enemies.push(enemy);
       const born = generation;
       loadCharacter(kind === 'tank' || kind === 'infected' ? 'zombieC' : 'zombieA', 'idle').then(({ model, mixer, actions }) => {
@@ -786,12 +807,16 @@ export default function Game() {
     };
     const spawnPack = (cx: number, cz: number, count: number) => { for (let i = 0; i < count; i++) spawnEnemy(cx + Math.cos(i * 2.1) * (5 + i % 3), cz + Math.sin(i * 2.1) * (5 + i % 3), i === count - 1 && count > 5); };
     const syncAmmo = () => { runtime.ammo = runtime.arsenal[runtime.weapon].ammo; runtime.reserve = runtime.arsenal[runtime.weapon].reserve; };
+    const equipWeapon = (kind: WeaponKind) => {
+      if ((!runtime.active && !journalOpen) || conversation || !runtime.arsenal[kind].owned || runtime.weapon === kind) return;
+      runtime.weapon = kind;
+      runtime.reloading = false; runtime.reloadLeft = 0; runtime.shotCooldown = .3; weapon.rotation.set(0,0,0);
+      syncAmmo(); updateWeaponModel(); notify(WEAPONS[runtime.weapon].name); snapshotHud();
+    };
     const switchWeapon = () => {
       if (!runtime.active || conversation) return;
       const owned = (Object.keys(WEAPONS) as WeaponKind[]).filter(k => runtime.arsenal[k].owned);
-      runtime.weapon = owned[(owned.indexOf(runtime.weapon) + 1) % owned.length];
-      runtime.reloading = false; runtime.reloadLeft = 0; runtime.shotCooldown = .3; weapon.rotation.set(0,0,0);
-      syncAmmo(); updateWeaponModel(); notify(WEAPONS[runtime.weapon].name);
+      equipWeapon(owned[(owned.indexOf(runtime.weapon) + 1) % owned.length]);
     };
     const reloadWeapon = () => {
       const spec = WEAPONS[runtime.weapon];
@@ -850,6 +875,10 @@ export default function Game() {
     const completeStory = (id:CampaignId) => {
       if(OBJECTIVES[runtime.stage].id!==id)return;
       if(id==='intro'){runtime.hasMap=true;learn(id);notify('Karte erhalten · [M] Fichtenau & Region');spawnPack(START_POINTS.fuel.x+10,START_POINTS.fuel.z-6,3);}
+      else if(id==='supplies'){
+        if(!runtime.inventory.medkit){notify('Ein Verband fehlt · sammle den Vorrat am Lager.');return;}
+        runtime.inventory.medkit--;learn('jonas-treated');learn(id);
+      }
       else if(id==='fuel'){fuelCell.visible=false;learn(id);}
       else if(id==='returnFuel')learn(id);
       else if(id==='serum'){serum.visible=false;learn(id);spawnPack(62,-20,7);}
@@ -859,18 +888,103 @@ export default function Game() {
         const mission=OBJECTIVES[runtime.stage];
         if(mission.area&&!runtime.visited.includes(mission.area))runtime.visited.push(mission.area);
         for(const poi of REGION_POIS)if(Math.hypot(poi.x-mission.x,poi.z-mission.z)<10&&!runtime.visited.includes(poi.id))runtime.visited.push(poi.id);
+        const reward=mission.activity?.reward;
+        if(reward){runtime.arsenal.pistol.reserve+=reward.ammo??0;for(const kind of ['medkit','water','ration'] as const)runtime.inventory[kind]=Math.min(ITEMS[kind].limit,runtime.inventory[kind]+(reward[kind]??0));syncAmmo();}
         learn(id);
-        const route=routeObjects.find(r=>r.id===id);if(route){if(id==='quarry')route.object.visible=false;else (route.object.material as THREE.MeshStandardMaterial).emissiveIntensity=.05;}
+        if(reward)notify(`${mission.title} · Hilfe geleistet · Vorräte erhalten${mission.activity?.secures?' · Gebiet beruhigt':''}`);
+      }
+    };
+    const finishActivityStep=(id:ActivityMissionId,index:number)=>{
+      const mission=STORY_ACTIVITIES.find(m=>m.id===id)!;
+      const state=runtime.activities[id];
+      if(OBJECTIVES[runtime.stage].id!==id||!state||state.step!==index)return;
+      const done=mission.steps[index];state.step++;state.started=false;state.timer=0;state.wave=0;
+      if(state.step>=mission.steps.length)completeStory(id);
+      else {moveObjectiveMarker(runtime.stage);notify(`✓ ${done.label} · ${mission.steps[state.step].label}`);}
+      snapshotHud();saveGame(true);
+    };
+    const activityEncounter=(mission:ActivityMissionId,index:number,count:number)=>{
+      const step=STORY_ACTIVITIES.find(m=>m.id===mission)!.steps[index],tag=`${mission}:${index}`;
+      let spawned=0;
+      for(let i=0;i<36&&spawned<count;i++){
+        const r=i<12?3:i<24?8:13,angle=i*2.4;
+        const x=step.x+Math.cos(angle)*r,z=step.z+Math.sin(angle)*r;
+        if(collides(x,z)||Math.hypot(camera.position.x-x,camera.position.z-z)<2)continue;
+        const before=enemies.length;spawnEnemy(x,z,false,spawned%3===1?'runner':'walker',false,tag);
+        if(enemies.length>before){const e=enemies[enemies.length-1];e.brain.lastKnown={x:camera.position.x,z:camera.position.z};transition(e.brain,'chase',0);spawned++;}
+      }
+      emitNoise(step,55,'alarm',4);
+    };
+    const interactActivity=()=>{
+      const mission=OBJECTIVES[runtime.stage].activity;if(!mission)return false;
+      const state=runtime.activities[mission.id]??(runtime.activities[mission.id]=newActivityProgress());
+      if(mission.actor&&!state.actor)state.actor={x:mission.actor.x,z:mission.actor.z};
+      tickActivities(0);const step=activityStep(mission,state);if(!step||step.kind==='shelter')return false;
+      const target=objectiveAt(runtime.stage,runtime.activities,runtime.learned).target;
+      if(horizontalDistance(camera.position,target)>3.2||!visibleFrom(camera.position,target))return false;
+      if(['clear','defend','escort'].includes(step.kind)){
+        if(!state.started){state.started=true;state.wave=1;if(step.kind!=='escort')activityEncounter(mission.id,state.step,step.count??2);notify(step.kind==='escort'?'Bleib bei deinem Begleiter. Sichere den Weg zum Ziel.':step.kind==='defend'?'Arbeit begonnen · bleib in der Nähe und halte die Infizierten vom Arbeitsplatz fern.':'Sichere den markierten Bereich.');saveGame(true);}
+        else notify(step.kind==='escort'?'Dein Begleiter folgt in deiner Nähe. Bei Infizierten bleibt er stehen.':'Der Einsatz läuft. Sichere den Arbeitsplatz.');
+      }else if(step.lines?.length){
+        say([mission.actor?.name??(mission.id==='research'?'NOAH':'MARA · FUNK'),step.lines],null,{mission:mission.id,step:state.step});
+      }else {soundBurst(.12,step.kind==='collect'?500:900,.08);finishActivityStep(mission.id,state.step);}
+      snapshotHud();return true;
+    };
+    const tickActivities=(dt:number)=>{
+      const mission=OBJECTIVES[runtime.stage].activity;
+      const state=mission?(runtime.activities[mission.id]??(runtime.activities[mission.id]=newActivityProgress())):undefined;
+      if(mission?.actor&&state&&!state.actor)state.actor={x:mission.actor.x,z:mission.actor.z};
+      for(const actor of activityActors){
+        const definition=STORY_ACTIVITIES.find(m=>m.id===actor.mission)!,saved=runtime.activities[actor.mission]?.actor??definition.actor!;
+        actor.anchor.position.set(saved.x,terrainHeight(saved.x,saved.z),saved.z);
+        actor.anchor.visible=missionIndex(actor.mission)<=runtime.stage&&horizontalDistance(camera.position,actor.anchor.position)<100;
+        if(!actor.anchor.visible)continue;
+        const progress=runtime.activities[actor.mission],task=activityStep(definition,progress);
+        actor.tool.visible=mission?.id===actor.mission&&task?.kind==='defend'&&!!progress?.started&&progress.timer<(task.seconds??0);
+        actor.tool.rotation.z=Math.sin(performance.now()*.009)*.3;
+        actor.cargo.visible=actor.mission==='quarry'&&(progress?.step??0)>=2&&!runtime.learned.includes('quarry');
+        const treatment=definition.steps.findIndex(s=>s.kind==='treat');
+        actor.anchor.rotation.z=treatment>=0&&(progress?.step??0)<=treatment&&!runtime.learned.includes(actor.mission) ? .14 : 0;
+        if(!actor.loaded){actor.loaded=true;makeNpc(actor.anchor,definition.actor!.skin,'idle',0x61cdb3,c=>{actor.animation=c;});}
+        actor.anchor.rotation.y=Math.atan2(camera.position.x-saved.x,camera.position.z-saved.z);
+      }
+      if(!mission||!state)return;
+      const step=activityStep(mission,state);if(!step)return;
+      moveObjectiveMarker(runtime.stage);
+      if(step.kind==='shelter'){if(houseProtected(runtime.houses[step.house!]))finishActivityStep(mission.id,state.step);return;}
+      if(!state.started)return;
+      const distance=Math.hypot(camera.position.x-step.x,camera.position.z-step.z);
+      const opponents=enemies.filter(e=>e.alive&&e.encounter===`${mission.id}:${state.step}`);
+      if(step.kind==='clear'&&distance<16&&!opponents.length){finishActivityStep(mission.id,state.step);return;}
+      if(step.kind==='defend'){
+        const worker=mission.actor?activityActors.find(a=>a.mission===mission.id)?.anchor.position:npcAnchors.noah.position;
+        if(distance<16&&worker&&Math.hypot(worker.x-step.x,worker.z-step.z)<10&&!nearEnemy(worker,5))state.timer=Math.min(step.seconds!,state.timer+dt);
+        if(state.timer>=step.seconds!*.5&&state.wave===1){state.wave=2;activityEncounter(mission.id,state.step,2);}
+        if(state.timer>=step.seconds!&&!opponents.length)finishActivityStep(mission.id,state.step);
+      }
+      if(step.kind==='escort'&&state.actor){
+        const actor=activityActors.find(a=>a.mission===mission.id)!;
+        actor.pathTime-=dt;
+        const nearby=horizontalDistance(camera.position,actor.anchor.position)<24&&!nearEnemy(actor.anchor.position,5);
+        if(nearby&&actor.pathTime<=0){actor.path=pathBetween(actor.anchor.position,camera.position);actor.pathTime=.75;}
+        while(actor.path.length&&Math.hypot(actor.path[0].x-state.actor.x,actor.path[0].z-state.actor.z)<.7)actor.path.shift();
+        const before={...state.actor};
+        if(nearby&&horizontalDistance(camera.position,actor.anchor.position)>2.4&&actor.path[0])moveActor(actor.anchor.position,new THREE.Vector3(actor.path[0].x,0,actor.path[0].z),3.6,dt);
+        state.actor={x:actor.anchor.position.x,z:actor.anchor.position.z};
+        const moving=Math.hypot(state.actor.x-before.x,state.actor.z-before.z)>.001;
+        if(moving!==actor.moving&&actor.animation){actor.animation.actions[moving?'idle':'run'].fadeOut(.2);actor.animation.actions[moving?'run':'idle'].reset().fadeIn(.2).play();actor.moving=moving;}
+        if(Math.hypot(state.actor.x-step.x,state.actor.z-step.z)<4&&distance<9){actor.animation?.actions.run.fadeOut(.2);actor.animation?.actions.idle.reset().fadeIn(.2).play();actor.moving=false;finishActivityStep(mission.id,state.step);}
       }
     };
     const advanceStory = () => {
       if (!runtime.active) return;
-      const {target,id} = OBJECTIVES[runtime.stage];
+      if(OBJECTIVES[runtime.stage].activity){interactActivity();return;}
+      const {target,id} = objectiveAt(runtime.stage,runtime.activities,runtime.learned);
       if (horizontalDistance(camera.position, target) > 3.2) return;
       if (id === 'noah' && nearEnemy(target, 8)) { notify('Sichere zuerst den Bereich um Noah'); return; }
       if (id === 'tower' && horizontalDistance(npcAnchors.noah.position,target)>12) { notify('Noah muss den Sender erreichen · sichere seinen Weg');return; }
       if(id==='intro')say(['MARA',MARA_INTRO],id);
-      else if(OBJECTIVES[runtime.stage].kind==='report')say([OBJECTIVES[runtime.stage].place,OBJECTIVES[runtime.stage].lines!],id);
+      else if(id==='supplies'&&runtime.learned.includes('supplies'))say(['JONAS',['Danke für den Verband. Mit dem Arm konnte ich die Ausrüstung kaum vorbereiten.','Trink etwas, dann zeige ich dir Pistole und Axt an der Scheibe. Mit deiner Hilfe können wir wieder Vorräte aus dem Holzlager holen.']],id);
       else if(id==='fuel'||id==='returnFuel'||id==='noah'||id==='serum')say(STORY[id],id);
       else if(id==='tower')say(runtime.repaired?['MARA · FUNK','Das verstärkte Signal kommt durch! Der Konvoi holt euch mit der Dosis ab. Bleibt dreißig Sekunden am Sender und schützt Noah!']:STORY.tower,id);
       else notify(OBJECTIVES[runtime.stage].detail);
@@ -944,6 +1058,7 @@ export default function Game() {
           snapshotHud();
         }});
       }
+      for(const actor of activityActors)if(runtime.learned.includes(actor.mission))candidates.push({x:actor.anchor.position.x,z:actor.anchor.position.z,label:`MIT ${actor.name} SPRECHEN`,run:()=>say([actor.name,'Danke für deine Hilfe. Wir kümmern uns um die Menschen hier. Folge dem nächsten Auftrag; die anderen Helfer warten auf dich.'])});
       for(const npc of cityNpcs)candidates.push({x:npc.x,z:npc.z,label:`MIT ${npc.name} SPRECHEN`,run:()=>{
         if(npc.id==='lenz') {
           if(runtime.powerQuest===0){runtime.powerQuest=1;say([npc.name,['Weber hat euch geschickt? Die elektrische Archivtür hängt an meinem Generator. Ohne Strom kommt ihr nicht an ihr Protokoll.','In meiner Werkstatt liegt die Ersatzsicherung. Bring sie und zwei Ersatzteile für die Verkabelung hierher. Dann bekommt ihr auch meinen Polizeischlüssel, damit ihr Noah schützen könnt.']]);}
@@ -951,7 +1066,7 @@ export default function Game() {
           else say([npc.name,'Die Notbeleuchtung läuft. Der Polizeischlüssel gehört dir. In der Waffenkammer liegt eine Jagdflinte. Verlass dich nicht auf das Licht: Der Generator ist laut.']);
         } else if(npc.id==='weber') {
           if(OBJECTIVES[runtime.stage].id==='weber'){
-            say([npc.name,['Noah! Und ihr habt die Transportspur gefunden? W-07 im Steinbruch – endlich. Eine stabile Dosis kann den Überlebenden helfen. In der alten Klinik liegen auch unbrauchbare Proben: Wir brauchen die Kennung aus meinem Lagerprotokoll.','Das Original liegt im Lazarus-Archiv. Seine elektrische Tür braucht Strom. Lenz im Schulhof repariert den Generator; danach holt ihr meine blaue Keycard am Kontrollpunkt Nord.','Für die Rückkehr durch die Klinik: Verbände mit 1 gegen Wunden, Antibiotika mit 7 gegen Infektion, eine Weste mit 8 gegen Bisse. Medizin liegt in der Notaufnahme.','Lest das Protokoll. Dann nehmt die Südroute durch Linden und Brückenfeld zum Kühlbehälter W-07, bergt genau die genannte Dosis und bringt sie mit Noah zum Konvoi. Ich halte die Notaufnahme für die Verletzten offen.']], 'weber');return;
+            say([npc.name,['Noah! Und der Test aus dem Außenlabor ist positiv? Dann haben wir wirklich eine Chance. Die Helfer berichten schon von euren sicheren Unterkünften. In der alten Klinik liegen auch unbrauchbare Proben: Wir brauchen die Kennung aus meinem Lagerprotokoll.','Das Original liegt im Lazarus-Archiv. Seine elektrische Tür braucht Strom. Lenz im Schulhof repariert den Generator; danach holt ihr meine blaue Keycard am Kontrollpunkt Nord.','Für die Rückkehr durch die Klinik: Verbände mit 1 gegen Wunden, Antibiotika mit 7 gegen Infektion, eine Weste mit 8 gegen Bisse. Medizin liegt in der Notaufnahme.','Lest das Protokoll. Dann nehmt die Südroute durch Linden und Brückenfeld zum Kühlbehälter W-07, bergt genau die genannte Dosis und bringt sie mit Noah zum Konvoi. Ich halte die Notaufnahme für die Verletzten offen.']], 'weber');return;
           }
           if(runtime.benQuest>=3 && runtime.benQuest<4){runtime.benQuest=4;runtime.health=100;runtime.infection=0;runtime.inventory.medkit=Math.min(ITEMS.medkit.limit,runtime.inventory.medkit+2);say([npc.name,'Ben lebt? Dann war es nicht umsonst. Ich versorge deine Wunden. Diese Verbände sind für euch. Im Lazarus-Archiv liegt noch der Beweis gegen Falk.']);}
           else if(runtime.evidence.includes('archive'))say([npc.name,'Falk hat den Abbruchbefehl unterschrieben. Mit diesem Original kann er die Wahrheit nicht länger verschweigen. Bring es mit dem Gegenmittel zum Konvoi.']);
@@ -988,8 +1103,8 @@ export default function Game() {
     const interact = () => {
       if (!runtime.active) return;
       if (conversation) { nextDialogue(); return; }
-      const current=OBJECTIVES[runtime.stage];
-      if(current.kind==='report'&&horizontalDistance(camera.position,current.target)<3.2&&visibleFrom(camera.position,current.target)){advanceStory();return;}
+      if(OBJECTIVES[runtime.stage].id==='supplies'&&runtime.learned.includes('supplies')&&horizontalDistance(camera.position,objectiveAt(runtime.stage,runtime.activities,runtime.learned).target)<3.2){advanceStory();return;}
+      if(interactActivity())return;
       const doorway=nearestCityInteraction();if(doorway?.priority){doorway.run();syncCampaign();snapshotHud();return;}
       const item = nearestPickup();
       if (item) {
@@ -1000,12 +1115,12 @@ export default function Game() {
       }
       const note = nearestNote();
       if (note >= 0) { if (!runtime.discovered.includes(note)) runtime.discovered.push(note); openJournal(note); return; }
-      if((OBJECTIVES[runtime.stage].kind==='report'||['intro','fuel','returnFuel','noah','serum','tower'].includes(OBJECTIVES[runtime.stage].id))&&horizontalDistance(camera.position,OBJECTIVES[runtime.stage].target)<3.2){advanceStory();return;}
+      if(['intro','fuel','returnFuel','noah','serum','tower'].includes(OBJECTIVES[runtime.stage].id)&&horizontalDistance(camera.position,OBJECTIVES[runtime.stage].target)<3.2){advanceStory();return;}
       const cityInteraction=nearestCityInteraction();if(cityInteraction){cityInteraction.run();syncCampaign();snapshotHud();return;}
       advanceStory();
     };
     const consumeItem = (kind: ItemKind) => {
-      if (!runtime.active || conversation) return;
+      if ((!runtime.active && !journalOpen) || conversation) return;
       if(kind==='planks'){notify('Bretter mit E direkt am Fenster einsetzen.');return;}
       if (!runtime.inventory[kind]) { notify(`Keine ${ITEMS[kind].name} vorhanden`); return; }
       if (kind === 'medkit') { if (runtime.health >= 100) { notify('Gesundheit bereits voll'); return; } runtime.health = Math.min(100, runtime.health + 40); }
@@ -1027,6 +1142,15 @@ export default function Game() {
       }
       runtime.inventory[kind]--;if(kind==='water')learn('water');if(kind==='flare'&&horizontalDistance(camera.position,OBJECTIVES[RESCUE].target)<25)learn('flare');syncCampaign();notify(kind === 'scrap' ? 'Sender verstärkt · Konvoi 10 s früher' : `${ITEMS[kind].name} verwendet`); tone(520, 0.12, 'sine'); snapshotHud();
     };
+    const activateInventoryItem = (item: InventoryItem) => {
+      if (isWeaponItem(item)) equipWeapon(item); else consumeItem(item);
+      if (journalOpen) saveGame(true);
+    };
+    const moveItem = (from: InventorySlot, to: InventorySlot) => {
+      if (!journalOpen || conversation) return;
+      runtime.inventoryLayout = moveInventoryItem(runtime.inventoryLayout, from, to);
+      snapshotHud(); saveGame(true);
+    };
 
     const saveManifest={loot:WORLD_LOOT.map((p,i)=>({key:lootKey(p.kind,p.x,p.z,i),count:p.count})),doors:city.doors.map(d=>d.id),gates:safehouseEntrances.gates.map(g=>g.id)};
     const readSave = () => {
@@ -1038,6 +1162,7 @@ export default function Game() {
     };
     const saveGame = (force=false) => {
       if(!started||disposed||!force&&performance.now()-lastSaveAt<3000)return;
+      runtime.inventoryLayout = syncInventoryLayout(runtime.inventoryLayout, runtime.inventory, runtime.arsenal);
       const saved:GameSave={
         version:1,revision:2,savedAt:Date.now(),mission:OBJECTIVES[runtime.stage].id,
         phase:runtime.health<=0?'dead':runtime.stage===DEFENSE&&runtime.timer<=0?'won':'playing',
@@ -1045,7 +1170,7 @@ export default function Game() {
         noah:{x:npcAnchors.noah.position.x,z:npcAnchors.noah.position.z},
         loot:pickups.map((p,i)=>({key:saveManifest.loot[i].key,remaining:p.taken?0:p.count})),
         doors:city.doors.filter(d=>d.open).map(d=>d.id),gates:safehouseEntrances.gates.filter(g=>g.open).map(g=>g.id),
-        enemies:enemies.filter(e=>e.alive).map(e=>({kind:e.kind,health:e.health,x:e.group.position.x,z:e.group.position.z,yaw:e.group.rotation.y,brain:structuredClone(e.brain)})),
+        enemies:enemies.filter(e=>e.alive).map(e=>({kind:e.kind,health:e.health,x:e.group.position.x,z:e.group.position.z,yaw:e.group.rotation.y,brain:structuredClone(e.brain),encounter:e.encounter})),
         flares:flares.map(f=>({x:f.object.position.x,z:f.object.position.z,life:f.life})),noises:structuredClone(noises),
         conversation:conversation?structuredClone(conversation):null,flashlight:flashlight.intensity>0,
         reloadLeft:Math.max(0,runtime.reloadLeft),shotCooldown:runtime.shotCooldown,invulnerable:runtime.invulnerable,
@@ -1071,11 +1196,11 @@ export default function Game() {
       enemies.forEach(releaseEnemy); enemies.length = 0; enemyHitboxes.length = 0;
       camera.position.set(START.x, terrainHeight(START.x, START.z) + 1.72, START.z); yaw = -1.45; pitch = -0.06; camera.rotation.set(pitch, yaw, 0);
       fuelCell.visible = true; serum.visible = true; npcAnchors.noah.visible = false;
-      routeObjects.forEach(r=>{r.object.visible=true;(r.object.material as THREE.MeshStandardMaterial).emissiveIntensity=.6;});
       pickups.forEach((item, i) => { item.taken = false; item.object.visible = true; item.count = WORLD_LOOT[i].count; });
       runtime = freshRuntime(); runtime.active = true; updateWeaponModel();
       safehouseEntrances.reset();uvWasScheduled=uvScheduled(runtime.elapsed);
       questProps.forEach(p=>p.object.visible=true);cityNpcs.forEach(n=>n.anchor.position.set(n.x,terrainHeight(n.x,n.z),n.z));
+      activityActors.forEach(a=>{a.anchor.visible=false;a.path=[];a.pathTime=0;a.cooldown=0;a.moving=false;a.animation?.actions.run.stop();a.animation?.actions.idle.reset().play();});
       if(saved){
         runtime={...freshRuntime(),...structuredClone(pickProgress(saved.progress)),active:saved.phase==='playing',reloadLeft:saved.reloadLeft,reloading:saved.reloadLeft>0,shotCooldown:saved.shotCooldown,invulnerable:saved.invulnerable};
         camera.position.set(saved.player.x,terrainHeight(saved.player.x,saved.player.z)+1.72,saved.player.z);
@@ -1087,9 +1212,8 @@ export default function Game() {
         const remaining=new Map(saved.loot.map(p=>[p.key,p.remaining]));
         pickups.forEach((p,i)=>{p.count=remaining.get(saveManifest.loot[i].key)!;p.taken=p.count===0;p.object.visible=!p.taken;});
         fuelCell.visible=!runtime.learned.includes('fuel');serum.visible=!runtime.learned.includes('serum');
-        routeObjects.forEach(r=>{const done=runtime.learned.includes(r.id);r.object.visible=r.id!=='quarry'||!done;(r.object.material as THREE.MeshStandardMaterial).emissiveIntensity=done?.05:.6;});
         questProps.forEach(p=>{p.object.visible=p.id==='fuse'?runtime.powerQuest<2:p.id==='keycard'?!runtime.keycard:p.id==='shotgun'||p.id==='rifle'?!runtime.arsenal[p.id].owned:true;});
-        for(const e of saved.enemies){const before=enemies.length;spawnEnemy(e.x,e.z,false,e.kind,true);if(enemies.length>before){const restored=enemies[enemies.length-1];restored.health=e.health;restored.brain=structuredClone(e.brain);restored.group.rotation.y=e.yaw;}}
+        for(const e of saved.enemies){const before=enemies.length;spawnEnemy(e.x,e.z,false,e.kind,true,e.encounter);if(enemies.length>before){const restored=enemies[enemies.length-1];restored.health=e.health;restored.brain=structuredClone(e.brain);restored.group.rotation.y=e.yaw;}}
         saved.flares.forEach(f=>createFlare(f.x,f.z,f.life));noises.push(...structuredClone(saved.noises));
         flashlight.intensity=saved.flashlight&&runtime.battery>0?32:0;
         conversation=saved.conversation?structuredClone(saved.conversation):null;
@@ -1117,7 +1241,7 @@ export default function Game() {
       if(runtime.stage===DEFENSE)runtime.timer=runtime.repaired?30:40;
       noahPath=[];noahPathTime=0;noises.length=0;flashlight.intensity=0;resumeGame();snapshotHud();notify(`${h.name} · zurück am Respawnpunkt. Quest und Ausrüstung bleiben erhalten.`);
     };
-    apiRef.current = { start:()=>resetGame(),continue:continueGame,menu:returnToMenu,resume: resumeGame, journal: () => openJournal(), nextDialogue,respawn:respawnPlayer,shelter:shelterAction };
+    apiRef.current = { start:()=>resetGame(),continue:continueGame,menu:returnToMenu,resume: resumeGame, journal: () => openJournal(), moveItem, useItem: activateInventoryItem, nextDialogue,respawn:respawnPlayer,shelter:shelterAction };
     readSave();
     const onLeave = () => saveGame(true);
     const onVisibility = () => {if(document.hidden)saveGame(true);};
@@ -1127,7 +1251,9 @@ export default function Game() {
     // and inspect live renderer counters without shipping cheats in production.
     if (process.env.NODE_ENV !== 'production') Object.assign(window, { __nachtwache: {
       campaign:()=>({missions:CAMPAIGN,start:START_POINTS,camp:START_CAMP,houses:SAFEHOUSES,firstHouse:START_HOUSE}),
-      state: () => ({ ...runtime,mission:OBJECTIVES[runtime.stage].id,protectedHouse:protectedHouseAt(camera.position.x,camera.position.z)?.id,trainingTarget:trainingTarget.position.toArray(),dialogue: conversation ? { speaker: conversation.speaker, lines: [...conversation.lines], index: conversation.index } : null, inventory:{...runtime.inventory},arsenal:structuredClone(runtime.arsenal),position:camera.position.toArray(),noah:npcAnchors.noah.position.toArray(),enemies:enemies.map(e=>({kind:e.kind,state:e.brain.state,health:e.health,x:e.group.position.x,z:e.group.position.z,y:e.group.position.y,head:e.head.getWorldPosition(new THREE.Vector3()).toArray(),visible:visibleFrom(camera.position,e.group.position),alive:e.alive})),render:{calls:renderer.info.render.calls,triangles:renderer.info.render.triangles},doors:city.doors.map(d=>({id:d.id,open:d.open})) }),
+      activity:()=>({mission:OBJECTIVES[runtime.stage].id,definition:OBJECTIVES[runtime.stage].activity,progress:runtime.activities[OBJECTIVES[runtime.stage].id],target:objectiveAt(runtime.stage,runtime.activities,runtime.learned).target,actors:activityActors.map(a=>({mission:a.mission,position:{x:a.anchor.position.x,z:a.anchor.position.z},visible:a.anchor.visible})),secured:securedAreas(runtime.learned),risk:localRisk(camera.position.x,camera.position.z)}),
+      route:(from:Point,to:Point)=>pathBetween(from,to),
+      state: () => ({ ...runtime,mission:OBJECTIVES[runtime.stage].id,protectedHouse:protectedHouseAt(camera.position.x,camera.position.z)?.id,trainingTarget:trainingTarget.position.toArray(),dialogue: conversation ? { speaker: conversation.speaker, lines: [...conversation.lines], index: conversation.index } : null, inventory:{...runtime.inventory},arsenal:structuredClone(runtime.arsenal),position:camera.position.toArray(),noah:npcAnchors.noah.position.toArray(),enemies:enemies.map(e=>({kind:e.kind,state:e.brain.state,health:e.health,x:e.group.position.x,z:e.group.position.z,y:e.group.position.y,head:e.head.getWorldPosition(new THREE.Vector3()).toArray(),visible:visibleFrom(camera.position,e.group.position),alive:e.alive,encounter:e.encounter})),render:{calls:renderer.info.render.calls,triangles:renderer.info.render.triangles},doors:city.doors.map(d=>({id:d.id,open:d.open})) }),
       teleport: (x:number,z:number,direction=0,withNoah=false) => {if(collides(x,z))throw Error('QA destination is blocked');camera.position.set(x,terrainHeight(x,z)+1.72,z);yaw=direction;pitch=0;camera.rotation.set(pitch,yaw,0);if(withNoah&&runtime.learned.includes('noah')){const offset=[-2,2,-3,3].find(dx=>!collides(x+dx,z));if(offset!==undefined){npcAnchors.noah.position.set(x+offset,terrainHeight(x+offset,z),z);noahPath=[];noahPathTime=0;}}},
       interact, shoot, reload:reloadWeapon, switchWeapon, start:()=>resetGame(),continue:continueGame,menu:returnToMenu,save:()=>saveGame(true),nextDialogue,consume:consumeItem,respawn:respawnPlayer,shelter:shelterAction,
       setAiming:(aiming:boolean)=>{runtime.aiming=aiming;},hurt:hurtPlayer,
@@ -1137,7 +1263,8 @@ export default function Game() {
       setTime: (hours:number) => { runtime.elapsed=((hours-9+24)%24)*60; snapshotHud(); },
       environment: () => ({ ...daylightAt(runtime.elapsed), threat:nightThreat(runtime.elapsed), uvProtected:protectedAt(camera.position.x,camera.position.z)?.id, gates:safehouseEntrances.gates.map(g=>({id:g.id,x:g.x,z:g.z,open:g.open,uv:g.uv,lamps:g.tubes.some(t=>t.visible)})), refuge:refugeAt(camera.position.x,camera.position.z)?.id, sun:daylightAt(runtime.elapsed).sunIntensity, moon:daylightAt(runtime.elapsed).moonIntensity, fog:scene.fog instanceof THREE.FogExp2?scene.fog.density:0, npcs:cityNpcs.map(n=>({id:n.id,x:n.x,z:n.z})), placements:placements.filter(p=>p.anchor.parent).length,detail:worldDetail?.stats }),
       performance: () => ({frameAverageMs:resolutionBudget.averageMs,resolutionScale:resolutionBudget.scale,pixelRatio:renderer.getPixelRatio(),buffer:[canvas.width,canvas.height],trees:treeDetail?.levels(),localLights:localLightPool.slots.length,programs:renderer.info.programs?.length,geometries:renderer.info.memory.geometries,textures:renderer.info.memory.textures,contextLosses,contextLost,frames:renderedFrames}),
-      world: () => ({bounds:WORLD,...regionWorld.stats(),nature:regionNature?.stats(),zones:WORLD_ZONES,pois:REGION_POIS,bridges:BRIDGES,structures:STRUCTURES,roads:ROAD_LINES,risk:riskAt(camera.position.x,camera.position.z),dressing:settlementDetail?.stats(),dressingScenes:settlementDetail?.plan.scenes,dressingProps:settlementDetail?.plan.props,dressingBounds:settlementDetail?.bounds}),
+      loot:()=>pickups.map(p=>({kind:p.kind,count:p.count,taken:p.taken,visible:p.object.visible,position:p.object.position.toArray(),rotation:p.object.rotation.y,batches:p.object.children.length})),
+      world: () => ({bounds:WORLD,...regionWorld.stats(),nature:regionNature?.stats(),shoreline:shoreline?.stats(),wildlife:wildlife?.stats(),wildlifePositions:wildlife?.positions(),zones:WORLD_ZONES,pois:REGION_POIS,bridges:BRIDGES,structures:STRUCTURES,roads:ROAD_LINES,risk:riskAt(camera.position.x,camera.position.z),dressing:settlementDetail?.stats(),dressingScenes:settlementDetail?.plan.scenes,dressingProps:settlementDetail?.plan.props,dressingBounds:settlementDetail?.bounds}),
       blocked: (x:number,z:number) => collides(x,z), height:terrainHeight,
     }});
 
@@ -1167,16 +1294,17 @@ export default function Game() {
       return Math.hypot(position.x - beforeX, position.z - beforeZ) > 0.0001;
     };
     const onKeyDown = (event: KeyboardEvent) => {
-      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.code)) event.preventDefault();
+      if (runtime.active && ['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.code)) event.preventDefault();
       if (conversation && runtime.active && ['KeyE', 'Space', 'Enter'].includes(event.code)) {
         event.preventDefault(); if (!event.repeat) nextDialogue(); return;
       }
       if (conversation && event.code !== 'Escape') return;
-      if (event.code === 'KeyJ' || event.code === 'KeyM' || event.code === 'Tab') {
+      if (event.code === 'KeyI' || event.code === 'KeyJ' || event.code === 'KeyM' || event.code === 'Tab') {
+        if (event.code !== 'Tab' || !journalOpen) event.preventDefault();
         if (journalOpen && event.code === 'Tab') return;
         if (!event.repeat) {
           if (journalOpen) resumeGame();
-          else if (runtime.active) { openJournal(); if (event.code === 'KeyM') setJournalTab('map'); }
+          else if (runtime.active) openJournal(undefined, event.code === 'KeyI' ? 'inventory' : event.code === 'KeyM' ? 'map' : undefined);
         }
         return;
       }
@@ -1187,7 +1315,10 @@ export default function Game() {
       if (event.code === 'KeyR' && !event.repeat) reloadWeapon();
       if (event.code === 'KeyQ' && !event.repeat) switchWeapon();
       if (event.code === 'KeyF' && !event.repeat) {flashlight.intensity = flashlight.intensity > 0 ? 0 : runtime.battery > 0 ? 32 : 0;if(flashlight.intensity>0)learn('lamp');}
-      const slot = Number(event.code.replace('Digit', '')) - 1; const kind = (Object.keys(ITEMS) as ItemKind[])[slot]; if (kind && !event.repeat) consumeItem(kind);
+      if (/^Digit[1-5]$/.test(event.code) && !event.repeat) {
+        const slot = Number(event.code.slice(-1)) - 1, item = runtime.inventoryLayout.hotbar[slot];
+        if (item) activateInventoryItem(item); else notify(`Hotbar-Platz ${slot + 1} ist leer · [I] zum Belegen`);
+      }
       if (event.code === 'Escape' && !event.repeat && runtime.active) { runtime.active = false; keys.clear();saveGame(true); document.exitPointerLock?.(); setScreen('paused'); }
     };
     const onKeyUp = (event: KeyboardEvent) => keys.delete(event.code);
@@ -1224,7 +1355,7 @@ export default function Game() {
       pendingResize=false;
     };
     const releaseGpuResources=()=>{
-      composer.passes.forEach(pass=>pass.dispose());composer.dispose();reflections.dispose();sunLight.shadow.map?.dispose();treeDetail?.dispose();
+      composer.passes.forEach(pass=>pass.dispose());composer.dispose();reflections.dispose();sunLight.shadow.map?.dispose();treeDetail?.dispose();lootVisuals.dispose();
       sunLight.shadow.map=null;
       const geometries=new Set<THREE.BufferGeometry>(),materials=new Set<THREE.Material>(),textures=new Set<THREE.Texture>(),skeletons=new Set<THREE.Skeleton>();
       scene.traverse((object) => {
@@ -1280,13 +1411,16 @@ export default function Game() {
       settlementDetail=await buildSettlementDetail(scene,[...detailFootprints,...obstacles],reserved,regionCollision,load,()=>disposed);
       if(disposed)return;
       settlementDetail?.update(camera.position.x,camera.position.z);
-      const naturePlan=planRegionNature([...detailFootprints,...obstacles,...regionCollision.obstacles,...(settlementDetail?.plan.props??[])],reserved);
+      const shorePlan=planShoreline([...detailFootprints,...obstacles,...(settlementDetail?.plan.props??[])],reserved);
+      shoreline=buildShoreline(scene,shorePlan);
+      const naturePlan=planRegionNature([...detailFootprints,...obstacles,...regionCollision.obstacles,...(settlementDetail?.plan.props??[]),...shorePlan],reserved);
       regionNature=buildRegionNature(scene,naturePlan);
       for(const p of naturePlan)if(p.kind==='rock'){
         // Low plants remain walkable; substantial boulders have real collision.
         const o={x:p.x,z:p.z,hx:p.radius*.8,hz:p.radius*.8};regionCollision.obstacles.push(o);regionCollision.index.add(o);
       }
       regionNature.update(camera.position.x,camera.position.z);
+      wildlife=buildWildlife(scene,planWildlife(collides),collides);
     });
     Promise.all([
       clearLayout,
@@ -1345,11 +1479,13 @@ export default function Game() {
       if(disposed||contextLost||document.hidden)return;
       if(resolutionBudget.sample(elapsed*1000,runtime.active))pendingResize=true;
       if(pendingResize)resize();
-      if (runtime.active && !conversation) npcMixers.forEach((mixer) => mixer.update(dt));
+      if (runtime.active && !conversation) npcMixers.forEach((mixer) => {const root=mixer.getRoot();if(root instanceof THREE.Object3D&&root.getWorldPosition(new THREE.Vector3()).distanceTo(camera.position)<100)mixer.update(dt);});
       const time = performance.now() * 0.001;
+      wildlife?.update(runtime.active&&!conversation?dt:0,runtime.elapsed,camera.position);
+      activityProps.update(runtime.activities,runtime.learned,OBJECTIVES[runtime.stage].id,camera.position);
       cullTime-=dt;
       if(cullTime<=0){
-        cullTime=.16;regionWorld.update(camera.position.x,camera.position.z);city.update(camera.position.x,camera.position.z);worldDetail?.update(camera.position.x,camera.position.z);treeDetail?.update(camera.position.x,camera.position.z);settlementDetail?.update(camera.position.x,camera.position.z);regionNature?.update(camera.position.x,camera.position.z);
+        cullTime=.16;regionWorld.update(camera.position.x,camera.position.z);city.update(camera.position.x,camera.position.z);worldDetail?.update(camera.position.x,camera.position.z);treeDetail?.update(camera.position.x,camera.position.z);settlementDetail?.update(camera.position.x,camera.position.z);regionNature?.update(camera.position.x,camera.position.z);shoreline?.update(camera.position.x,camera.position.z);
         for(const p of placements)p.anchor.visible=Math.hypot(p.anchor.position.x-camera.position.x,p.anchor.position.z-camera.position.z)<180;
         for(const s of regionalSigns)s.group.visible=Math.hypot(s.x-camera.position.x,s.z-camera.position.z)<180;
       }
@@ -1360,8 +1496,6 @@ export default function Game() {
       redBeacon.intensity = 20 + Math.sin(performance.now() * 0.004) * 8;
       markerRing.rotation.z += dt * 0.8;
       if (markerBeam.material instanceof THREE.MeshBasicMaterial) markerBeam.material.opacity = 0.08 + Math.sin(performance.now() * 0.003) * 0.03;
-      fuelCell.rotation.y += dt; fuelCell.position.y = fuelBaseY + Math.sin(performance.now() * 0.003) * 0.08;
-      serum.rotation.y -= dt; serum.position.y = serumBaseY + Math.sin(performance.now() * 0.003 + 2) * 0.08;
 
       if (runtime.active && !conversation) {
         runtime.elapsed += dt;
@@ -1409,7 +1543,7 @@ export default function Game() {
         if (runtime.noticeTime > 0) { runtime.noticeTime -= dt; if (runtime.noticeTime <= 0) setNotice(''); }
         runtime.ambientTime -= dt;
         if (runtime.ambientTime <= 0) { tone(65 + Math.random() * 35, 1.4, 'sine', 0.009); soundBurst(1.8,350,.028);const close=enemies.find(e=>e.alive&&horizontalDistance(e.group.position,camera.position)<22);if(close){soundBurst(.65,180,.13,close.group.position);tone(54,.7,'sawtooth',.012);}runtime.ambientTime = 5 + Math.random() * 7; }
-        if (flashlight.intensity > 0) { runtime.battery = Math.max(0, runtime.battery - dt * 0.65); if (runtime.battery <= 0) { flashlight.intensity = 0; notify('Batterie leer · [3] wechseln'); } }
+        if (flashlight.intensity > 0) { runtime.battery = Math.max(0, runtime.battery - dt * 0.65); if (runtime.battery <= 0) { flashlight.intensity = 0; notify('Batterie leer · [I] Batterie benutzen oder in die Hotbar legen'); } }
         for (let i = flares.length - 1; i >= 0; i--) { flares[i].life -= dt; if (flares[i].life <= 0) { releaseFlare(flares[i].object); flares.splice(i, 1); } }
         camera.rotation.set(pitch + recoil, yaw, 0);
         recoil = THREE.MathUtils.lerp(recoil, 0, 1 - Math.pow(0.002, dt));
@@ -1437,7 +1571,7 @@ export default function Game() {
         }
 
         if (runtime.stage > 0) runtime.spawn -= dt;
-        if (runtime.spawn <= 0) {const risk=riskAt(camera.position.x,camera.position.z);spawnEnemy(undefined, undefined, Math.random() < [0,.06,.12,.3][risk]); runtime.spawn = runtime.stage === DEFENSE ? 1.4 + Math.random() : ([30,15,8,3.5][risk]+Math.random()*5)*danger.spawnInterval; }
+        if (runtime.spawn <= 0) {const risk=localRisk(camera.position.x,camera.position.z);spawnEnemy(undefined, undefined, Math.random() < [0,.06,.12,.3][risk]); runtime.spawn = runtime.stage === DEFENSE ? 1.4 + Math.random() : (localPressure(camera.position.x,camera.position.z).interval+Math.random()*5)*danger.spawnInterval; }
         if (runtime.learned.includes('noah')) {
           const followX = camera.position.x + Math.sin(yaw) * 2.4, followZ = camera.position.z + Math.cos(yaw) * 2.4;
           const followTarget = new THREE.Vector3(followX, terrainHeight(followX, followZ), followZ);
@@ -1461,7 +1595,7 @@ export default function Game() {
             continue;
           }
           enemy.group.visible = distance < 105;
-          if(distance>110){enemy.alive=false;enemy.deathTime=0;for(const box of [enemy.hitbox,enemy.head]){const n=enemyHitboxes.indexOf(box);if(n>=0)enemyHitboxes.splice(n,1);}continue;}
+          if(distance>110){if(enemy.encounter){enemy.group.visible=false;continue;}enemy.alive=false;enemy.deathTime=0;for(const box of [enemy.hitbox,enemy.head]){const n=enemyHitboxes.indexOf(box);if(n>=0)enemyHitboxes.splice(n,1);}continue;}
           if(distance>95)continue;
           if(protectedAt(enemy.group.position.x,enemy.group.position.z)){
             enemy.health-=40*dt;if(enemy.health<=0){killEnemy(enemy,false);continue;}
@@ -1503,21 +1637,32 @@ export default function Game() {
           if(!runtime.active)break;
         }
 
-        pickups.forEach((item, i) => {
-          if (item.taken) return; item.object.rotation.y += dt; item.object.position.y = item.baseY + Math.sin(performance.now() * 0.003 + i) * 0.08;
-        });
+        pickups.forEach(item=>{const dx=item.object.position.x-camera.position.x,dz=item.object.position.z-camera.position.z;item.object.visible=!item.taken&&dx*dx+dz*dz<10000;});
 
+        tickActivities(dt);
+        if(runtime.learned.includes('noah')){
+          noahShotCooldown-=dt;
+          const threat=enemies.find(e=>e.alive&&horizontalDistance(e.group.position,npcAnchors.noah.position)<14&&visibleFrom(npcAnchors.noah.position,e.group.position));
+          if(threat&&noahShotCooldown<=0){damageEnemy(threat,26,false,false,npcAnchors.noah.position);emitNoise(npcAnchors.noah.position,25,'shot');soundBurst(.09,1300,.1,npcAnchors.noah.position);noahShotCooldown=1.35;}
+        }
         syncCampaign();
         if (runtime.active && runtime.stage === DEFENSE && horizontalDistance(camera.position, OBJECTIVES[DEFENSE].target) < 18) { runtime.timer = Math.max(0, runtime.timer - dt); if (runtime.timer <= 0) { runtime.active = false; setDialogue(null); conversation = null; snapshotHud();saveGame(true); document.exitPointerLock?.();setScreen('won'); } }
-        const objective = OBJECTIVES[runtime.stage]; const distance = horizontalDistance(camera.position, objective.target); runtime.distance = Math.round(distance);
-        runtime.prompt = distance < 3.2 ? (runtime.stage === RESCUE && nearEnemy(objective.target, 8) ? 'BEREICH SICHERN' : runtime.stage === DEFENSE ? 'HALTE DIE STELLUNG' : objective.kind==='report'?'[E] RETTUNGSROUTE · '+objective.title:['intro','fuel','returnFuel','noah','serum','tower'].includes(objective.id)?'[E] INTERAGIEREN':objective.detail) : '';
+        const objective = objectiveAt(runtime.stage,runtime.activities,runtime.learned); const distance = horizontalDistance(camera.position, objective.target); runtime.distance = Math.round(distance);
+        runtime.prompt = distance < 3.2 ? (runtime.stage === RESCUE && nearEnemy(objective.target, 8) ? 'BEREICH SICHERN' : runtime.stage === DEFENSE ? 'HALTE DIE STELLUNG' : ['intro','fuel','returnFuel','noah','serum','tower'].includes(objective.id)?'[E] INTERAGIEREN':objective.detail) : '';
         if(runtime.stage===TOWER&&distance<3.2&&horizontalDistance(npcAnchors.noah.position,objective.target)>12)runtime.prompt='NOAH ZUM SENDER BEGLEITEN';
         if (runtime.stage === DEFENSE && distance >= 18) runtime.prompt = 'ZUM SENDER ZURÜCKKEHREN · KONVOI WARTET';
         const nearItem = nearestPickup(), nearNote = nearestNote();
         if (nearNote >= 0) runtime.prompt = `[E] BRIEF LESEN · ${NOTES[nearNote].title}`;
         if (nearItem) runtime.prompt = `[E] ${lootName(nearItem.kind).toUpperCase()} ×${nearItem.count}`;
         const cityInteraction=nearestCityInteraction();if(cityInteraction&&(cityInteraction.priority||!nearItem&&nearNote<0))runtime.prompt=`[E] ${cityInteraction.label}`;
-        if(objective.kind==='report'&&distance<3.2&&visibleFrom(camera.position,objective.target))runtime.prompt='[E] RETTUNGSROUTE · '+objective.title;
+        if(objective.activity){
+          const state=runtime.activities[objective.id],step=activityStep(objective.activity,state);
+          if(step&&step.kind!=='shelter'&&distance<3.2&&visibleFrom(camera.position,objective.target))runtime.prompt=`[E] ${step.label}`;
+          const remaining=enemies.filter(e=>e.alive&&e.encounter===`${objective.id}:${state?.step}`).length;
+          if(state?.started&&step?.kind==='defend')runtime.prompt=`ARBEIT ${Math.floor(state.timer)}/${step.seconds} s · ${remaining} Infizierte · Nähe halten und Helfer schützen`;
+          if(state?.started&&step?.kind==='clear')runtime.prompt=`BEREICH SICHERN · ${remaining} Infizierte im Einsatz`;
+          if(state?.started&&step?.kind==='escort')runtime.prompt='BEGLEITEN · Nähe halten und den Weg sichern';
+        }
         cityClues.forEach((paper,i)=>{(paper.material as THREE.MeshStandardMaterial).emissiveIntensity=runtime.evidence.includes(DISCOVERIES[i].id)?.05:.4;});
         noteObjects.forEach((paper, i) => { (paper.material as THREE.MeshStandardMaterial).emissiveIntensity = runtime.discovered.includes(i) ? 0.05 : 0.4 + Math.sin(time * 2) * 0.15; });
 
@@ -1528,7 +1673,7 @@ export default function Game() {
           runtime.visited.push(regionPlace.id);
           if(regionPlace.risk>0&&!refugeAt(camera.position.x,camera.position.z))spawnPack(regionPlace.x+15,regionPlace.z-15,[0,3,6,9][regionPlace.risk]);
         }
-        const currentLocation = cityLocation ? {name:cityLocation.name,subtitle:cityLocation.story} : !inLegacy(camera.position.x,camera.position.z)?{name:regionPlace?.name??'TANNWALD · FREIE LANDSCHAFT',subtitle:`${regionPlace?.detail??'Weiden und Waldsäume zwischen den Orten.'} · RISIKO ${riskAt(camera.position.x,camera.position.z)+1}/4`}:camera.position.x>85?{name:'TANNWALD · OSTSTADT',subtitle:'RINGSTRASSE · EVAKUIERUNGSSEKTOR'}:camera.position.x<-95?{name:'BIRKENRAIN',subtitle:'WALDWEG · AUSSENGEBIET'}:LOCATIONS.find((item) => item.test(camera.position.x, camera.position.z))!;
+        const currentLocation = cityLocation ? {name:cityLocation.name,subtitle:cityLocation.story} : !inLegacy(camera.position.x,camera.position.z)?{name:regionPlace?.name??'TANNWALD · FREIE LANDSCHAFT',subtitle:`${regionPlace?.detail??'Weiden und Waldsäume zwischen den Orten.'} · RISIKO ${localRisk(camera.position.x,camera.position.z)+1}/4`}:camera.position.x>85?{name:'TANNWALD · OSTSTADT',subtitle:'RINGSTRASSE · EVAKUIERUNGSSEKTOR'}:camera.position.x<-95?{name:'BIRKENRAIN',subtitle:'WALDWEG · AUSSENGEBIET'}:LOCATIONS.find((item) => item.test(camera.position.x, camera.position.z))!;
         if (currentLocation.name !== runtime.locationName) { runtime.locationName = currentLocation.name; setLocation({ name: currentLocation.name, subtitle: currentLocation.subtitle }); locationTime = 3.2; }
         if (locationTime > 0) { locationTime -= dt; if (locationTime <= 0) setLocation(null); }
         runtime.hudTick -= dt;
@@ -1555,7 +1700,7 @@ export default function Game() {
 
   const start = useCallback(() => apiRef.current?.start(), []);
   const resume = useCallback(() => apiRef.current?.resume(), []);
-  const objective = OBJECTIVES[hud.stage];
+  const objective = objectiveAt(hud.stage,hud.activities,hud.learned);
   const currentHouse=SAFEHOUSES.find(h=>houseContains(h,hud.x,hud.z));
   const currentUv=uvProtectedAt(hud.elapsed,hud.houses,hud.x,hud.z);
   const currentThreat=nightThreat(hud.elapsed);
@@ -1568,19 +1713,19 @@ export default function Game() {
       <div className="vignette" aria-hidden="true" /><div className="grain" aria-hidden="true" />
 
       {screen === 'playing' && !dialogue && <div className="hud">
-        <div className="field-status"><span>TANNWALD · TAG {daylightAt(hud.elapsed).day} · {daylightAt(hud.elapsed).clock} · {daylightAt(hud.elapsed).period}</span>{currentUv?<b>UV-SCHUTZ AKTIV · SAFEHOUSE</b>:refugeAt(hud.x,hud.z)&&<b>UNTERSCHLUPF · UV-LAMPEN AUS</b>}{currentThreat.strength>.05&&!currentUv&&<b className="night-warning">{currentThreat.strength>.8?'NACHT · INFIZIERTE BESONDERS GEFÄHRLICH':'DÄMMERUNG · SAFEHOUSE SUCHEN'}</b>}<b>{hud.battery < 20 ? 'LAMPE FAST LEER' : 'TASCHENLAMPE'} {Math.ceil(hud.battery)}%</b><span>{hud.hasMap ? '[M] Karte · [J] Journal' : '[J] Ausrüstung · Karte bei Mara'} · {hud.visited.filter(id=>EXPLORABLE_IDS.includes(id)).length}/{EXPLORABLE_IDS.length} Orte</span><span>WASSER {Math.ceil(hud.thirst)}% · SCHUTZ {Math.ceil(hud.protection)}</span>{hud.infection>0 && <span className={hud.infection>70?'infected':''}>INFEKTION {Math.ceil(hud.infection)}% · [7] behandeln</span>}</div>
+        <div className="field-status"><span>TANNWALD · TAG {daylightAt(hud.elapsed).day} · {daylightAt(hud.elapsed).clock} · {daylightAt(hud.elapsed).period}</span>{currentUv?<b>UV-SCHUTZ AKTIV · SAFEHOUSE</b>:refugeAt(hud.x,hud.z)&&<b>UNTERSCHLUPF · UV-LAMPEN AUS</b>}{currentThreat.strength>.05&&!currentUv&&<b className="night-warning">{currentThreat.strength>.8?'NACHT · INFIZIERTE BESONDERS GEFÄHRLICH':'DÄMMERUNG · SAFEHOUSE SUCHEN'}</b>}{securedAreas(hud.learned).includes(zoneAt(hud.x,hud.z)?.id??'')&&<b>HELFERPOSTEN AKTIV · WENIGER VERSTÄRKUNG</b>}<b>{hud.battery < 20 ? 'LAMPE FAST LEER' : 'TASCHENLAMPE'} {Math.ceil(hud.battery)}%</b><span>[I] Inventar · {hud.hasMap ? '[M] Karte · [J] Journal' : '[J] Journal · Karte bei Mara'} · {hud.visited.filter(id=>EXPLORABLE_IDS.includes(id)).length}/{EXPLORABLE_IDS.length} Orte</span><span>WASSER {Math.ceil(hud.thirst)}% · SCHUTZ {Math.ceil(hud.protection)}</span>{hud.infection>0 && <span className={hud.infection>70?'infected':''}>INFEKTION {Math.ceil(hud.infection)}% · Antibiotika im Inventar [I]</span>}</div>
         <header className="fps-mission">
           <div><small>KAPITEL {objective.chapter+1} · {CHAPTERS[objective.chapter].title} · {hud.stage + 1}/{OBJECTIVES.length}</small><strong>{objective.title}</strong><span className="mission-reason">{objective.reason}</span><span>{objective.detail}</span></div>
           <b>{hud.distance}<small>M</small></b>
         </header>
-        <p className="story-goal">RETTUNGSZIEL · Noah und das Gegenmittel zum Konvoi bringen</p>
+        <p className="story-goal">EUER ZIEL · {storyGoal(hud.stage)}</p>
         {saveError&&<p className="save-warning" role="status">{saveError}</p>}
         <section className="vitals">
           <div className="health-number">{hud.health}</div><div><span>GESUNDHEIT</span><div className="bar"><i style={{ width: `${hud.health}%` }} /></div><span>AUSDAUER</span><div className="bar stamina"><i style={{ width: `${hud.stamina}%` }} /></div></div>
         </section>
         <section className="fps-ammo"><small>{hud.reloading ? 'NACHLADEN…' : `${WEAPONS[hud.weapon].name} · ${WEAPONS[hud.weapon].ammo}`}</small><div><b>{hud.weapon==='axe'?Math.floor(hud.stamina):String(hud.ammo).padStart(2, '0')}</b><span>/ {hud.weapon==='axe'?100:hud.reserve}</span></div><em>{hud.kills} INFIZIERTE</em></section>
         <div className={`fps-crosshair ${hud.hit > 0 ? 'confirmed-hit' : ''}`}><i /><i /><span /></div><div className="damage-feedback" style={{opacity:hud.damageFlash * 1.5}} /><div className="weapon-hint">[Q] Waffe wechseln · Rechte Maus: Zielen</div>
-        <div className="quickbelt">{(Object.entries(ITEMS) as [ItemKind, typeof ITEMS[ItemKind]][]).map(([kind, item]) => <div key={kind} className={hud.inventory[kind] ? '' : 'empty'} style={{ '--item-color': item.color } as React.CSSProperties}><kbd>{item.key}</kbd><span>{item.name}</span><b>{hud.inventory[kind]}</b></div>)}</div>
+        <div className="quickbelt" aria-label="Hotbar mit fünf Plätzen">{hud.inventoryLayout.hotbar.map((item, index) => <div key={index} className={`${item ? '' : 'empty'} ${item === hud.weapon ? 'active' : ''}`} style={{ '--item-color': item ? inventoryItemColor(item) : '#637466' } as React.CSSProperties}><kbd>{index + 1}</kbd>{item ? <><ItemIcon item={item} /><span>{inventoryItemName(item)}</span><b>{isWeaponItem(item) ? (item === hud.weapon ? '●' : '—') : hud.inventory[item]}</b></> : <><span>Leer</span><b>—</b></>}</div>)}<small>[I] Inventar</small></div>
         {hud.boosted > 0 && <div className="buff">GESTÄRKT · {Math.ceil(hud.boosted)} s</div>}
         {notice && <div className="loot-notice" role="status">{notice}</div>}
         {hud.prompt && <div className={hud.prompt === 'BEREICH SICHERN' ? 'fps-prompt danger-prompt' : 'fps-prompt'}>{hud.prompt}</div>}
@@ -1589,19 +1734,18 @@ export default function Game() {
       </div>}
 
       {screen === 'journal' && <section className="field-journal" role="dialog" aria-modal="true" aria-label="Feldjournal">
-        <header><div><p className="eyebrow">ELIAS VOSS · FELDJOURNAL</p><h2>Spuren einer Nacht.</h2></div><button type="button" onClick={resume} autoFocus>Zurück ins Spiel <kbd>J</kbd></button></header>
-        <nav aria-label="Journalansicht"><button type="button" aria-pressed={journalTab === 'map'} onClick={() => setJournalTab('map')}>Karte & Aufgaben</button><button type="button" aria-pressed={journalTab === 'inventory'} onClick={() => setJournalTab('inventory')}>Ausrüstung</button><button type="button" aria-pressed={journalTab === 'notes'} onClick={() => setJournalTab('notes')}>Fundstücke <span>{hud.discovered.length}/5</span></button><span>Spiel pausiert</span></nav>
+        <header><div><p className="eyebrow">ELIAS VOSS · FELDJOURNAL</p><h2>{journalTab === 'inventory' ? 'Inventar & Hotbar' : 'Spuren einer Nacht.'}</h2></div><button type="button" onClick={resume} autoFocus>Zurück ins Spiel <kbd>Esc / I</kbd></button></header>
+        <nav aria-label="Journalansicht"><button type="button" aria-pressed={journalTab === 'map'} onClick={() => setJournalTab('map')}>Karte & Aufgaben</button><button type="button" aria-pressed={journalTab === 'inventory'} onClick={() => setJournalTab('inventory')}>Inventar</button><button type="button" aria-pressed={journalTab === 'notes'} onClick={() => setJournalTab('notes')}>Fundstücke <span>{hud.discovered.length}/5</span></button><span>Spiel pausiert</span></nav>
         {journalTab === 'map' ? <div className="journal-layout">
           <div className="map-panel">{hud.hasMap ? <WorldMap player={{ x: hud.x, z: hud.z }} target={objective.target} visited={hud.visited} buildings={mapBuildings} houses={hud.houses} respawn={hud.respawn} npcs={mapNpcs} /> : <div className="map-missing"><h3>Die Karte hat Mara.</h3><p>Sprich mit ihr am Feuer im Rangerlager Fichtenau. Sie erklärt dir die Lage und gibt dir ihre Karte.</p></div>}
-          <section className="quest-log"><h3>Euer Rettungsplan</h3><p>{STORY_GOAL}</p><ol className="story-chapters">{CHAPTERS.map((c,i)=><li key={c.title} aria-current={i===objective.chapter?'step':undefined}><b>{i<objective.chapter?'✓ ':''}{c.title}</b><p>{c.summary}</p></li>)}</ol><article><small>JETZT · {objective.place} · {hud.stage+1}/{OBJECTIVES.length}</small><b>{objective.title}</b><p>{objective.reason}</p><p>{objective.detail}</p></article><details><summary>Storyfortschritt ansehen</summary>{OBJECTIVES.map((m,i)=><p key={m.id}>{i<hud.stage?'✓':i===hud.stage?'→':'○'} {i+1}. {m.title}</p>)}</details></section>
+          <section className="quest-log"><h3>Euer Rettungsplan</h3><p>{storyGoal(hud.stage)}</p><ol className="story-chapters">{CHAPTERS.map((c,i)=><li key={c.title} aria-current={i===objective.chapter?'step':undefined}><b>{i<objective.chapter?'✓ ':''}{c.title}</b><p>{c.summary}</p></li>)}</ol><article><small>JETZT · {objective.place} · {hud.stage+1}/{OBJECTIVES.length}</small><b>{objective.title}</b><p>{objective.reason}</p><p>{objective.detail}</p></article><details><summary>Storyfortschritt ansehen</summary>{OBJECTIVES.map((m,i)=><p key={m.id}>{i<hud.stage?'✓':i===hud.stage?'→':'○'} {i+1}. {m.title}</p>)}</details></section>
           <section className="quest-log"><h3>Eigene Unterschlüpfe</h3><p>Vier Fenster × 2 Bretter, zwei Türen × 1 Ersatzteil und ein Bett × 1 Ration. E am Bett aktiviert den Ort. Tore mit E am rechten Pfosten öffnen und schließen. Nach Aktivierung schaltet UV von 17:30 bis 06:30 Uhr ein; offene Tore bleiben nachts durch UV geschützt. Zum Schlafen die Haustüren schließen; Schlafzeit 19 bis 06 Uhr.</p>{SAFEHOUSES.map(h=><article key={h.id}><b>{h.name}{hud.respawn===h.id?' · RESPAWNPUNKT':''}</b><p>Fenster {hud.houses[h.id].windows.filter(Boolean).length}/4 · Türen {hud.houses[h.id].reinforced.filter(Boolean).length}/2 · Bett {hud.houses[h.id].bed?'bereit':'offen'} · {houseProtected(hud.houses[h.id])?'gesichert':hud.houses[h.id].claimed?'Türen offen':'noch nicht aktiviert'}</p></article>)}</section>
           <section className="quest-log"><h3>Nebenauftrag · Ben finden</h3><p>Diese Suche ist freiwillig und gehört nicht zum nächsten Schritt eures Rettungsplans.</p><article><b>Ein Name auf der Liste</b><p>{hud.benQuest===0?'Dr. Weber sucht Ben Voss. Frag sie nach ihm, wenn du helfen möchtest.':hud.benQuest>=4?'✓ Ben lebt. Dr. Weber hat deine Wunden versorgt.':hud.benQuest===3?'Melde Weber, dass Ben im Waldcamp lebt.':hud.evidence.includes('ambulance')?'Folge dem Waldweg zum Camp am Birkenrain.':hud.evidence.includes('triage')?'Suche das Funkprotokoll im Bahnhof.':'Lies die Patientenliste in der Notaufnahme.'}</p></article></section>
           <div className="region-list">{CITY_PLACES.filter(p=>hud.visited.includes(p.id)).map(p=><div key={p.id}><b>{p.name}</b><p>{p.story}</p></div>)}</div>
           <div className="region-list">{REGIONS.map((region, i) => <div key={region.name}><b>0{i + 1} · {region.name}</b><span>{region.loot}</span><p>{region.detail}</p></div>)}{WORLD_ZONES.map(region=><div key={region.id}><b>{region.name}</b><span>RISIKO {region.risk+1}/4 · {hud.visited.includes(region.id)?'ERKUNDET':'UNERKUNDET'}</span><p>{region.detail}</p></div>)}</div></div>
-        </div> : journalTab === 'inventory' ? <div className="equipment-layout"><aside className="inventory-panel"><h3>Waffen & Ausrüstung</h3><p className="ammo-stock">Reserve: 9 mm {hud.arsenal.pistol.reserve} · 12/70 {hud.arsenal.shotgun.reserve} · 5.56 mm {hud.arsenal.rifle.reserve}</p>{(Object.keys(WEAPONS) as WeaponKind[]).filter(k=>hud.arsenal[k].owned).map(k=><div key={k}><section><b>{hud.weapon===k?'● ':''}{WEAPONS[k].name}</b><p>{k==='axe'?'Nahkampf · 20 Ausdauer · 2,6 m':WEAPONS[k].ammo + ' · ' + hud.arsenal[k].ammo + ' / ' + hud.arsenal[k].reserve + ' Patronen'}</p></section></div>)}<p className="journal-tip">[Q] Waffe wechseln · [R] Nachladen · Rechte Maus: zielen. Nachladen wird beim Waffenwechsel abgebrochen.</p>{(Object.entries(ITEMS) as [ItemKind, typeof ITEMS[ItemKind]][]).map(([kind, item]) => <div key={kind}><kbd>{item.key}</kbd><section><b>{item.name} <em>×{hud.inventory[kind]}</em></b><p>{item.purpose}</p></section></div>)}<p className="journal-tip">Mit E sammeln und Briefe lesen. Gehen ist leise; Sprinten und Schüsse locken Infizierte an. Fackeln geben dir Zeit zum Durchbrechen.</p><p className="journal-tip">{hud.repaired ? '✓ Sender verstärkt.' : 'Am Funkturm: [5] mit drei Ersatzteilen.'}</p></aside>
-        </div> : <div className="notes-layout"><aside>{NOTES.map((note, i) => <button type="button" key={note.title} disabled={!hud.discovered.includes(i)} aria-pressed={selectedNote === i} onClick={() => setSelectedNote(i)}><small>SEKTOR 0{i + 1}</small>{hud.discovered.includes(i) ? note.title : 'Noch nicht gefunden'}</button>)}</aside><article className="letter">{hud.discovered.includes(selectedNote) ? <><p className="eyebrow">{NOTES[selectedNote].author}</p><h3>{NOTES[selectedNote].title}</h3><p>{NOTES[selectedNote].text}</p><footer>Am Fundort: „{NOTES[selectedNote].graffiti.replaceAll(' / ', ' · ')}“</footer></> : <><h3>Jeder Ort hat eine Stimme.</h3><p>Suche nach hellen Briefen auf Kisten und bemalten Tafeln. Gesammelte Briefe kannst du hier jederzeit wieder lesen.</p></>}</article></div>}
+        </div> : journalTab === 'inventory' ? <><InventoryPanel layout={hud.inventoryLayout} inventory={hud.inventory} arsenal={hud.arsenal} weapon={hud.weapon} onMove={(from, to) => apiRef.current?.moveItem(from, to)} onUse={item => apiRef.current?.useItem(item)} />{notice && <p className="inventory-notice" role="status">{notice}</p>}</> : <div className="notes-layout"><aside>{NOTES.map((note, i) => <button type="button" key={note.title} disabled={!hud.discovered.includes(i)} aria-pressed={selectedNote === i} onClick={() => setSelectedNote(i)}><small>SEKTOR 0{i + 1}</small>{hud.discovered.includes(i) ? note.title : 'Noch nicht gefunden'}</button>)}</aside><article className="letter">{hud.discovered.includes(selectedNote) ? <><p className="eyebrow">{NOTES[selectedNote].author}</p><h3>{NOTES[selectedNote].title}</h3><p>{NOTES[selectedNote].text}</p><footer>Am Fundort: „{NOTES[selectedNote].graffiti.replaceAll(' / ', ' · ')}“</footer></> : <><h3>Jeder Ort hat eine Stimme.</h3><p>Suche nach hellen Briefen auf Kisten und bemalten Tafeln. Gesammelte Briefe kannst du hier jederzeit wieder lesen.</p></>}</article></div>}
         {journalTab==='notes'&&hud.evidence.length>0&&<div className="evidence-list"><h3>Spuren aus der Oststadt</h3>{DISCOVERIES.filter(n=>hud.evidence.includes(n.id)).map(n=><article key={n.id}><h4>{n.title}</h4><p>{n.text}</p></article>)}{hud.evidence.includes('ben')&&<article><h4>Leas Foto · Ben lebt</h4><p>Ben hat das Waldcamp erreicht. Lea und die Kinder sind mit dem Konvoi in Sicherheit.</p></article>}</div>}
-        {journalTab==='notes'&&REGIONAL_STORY.some(r=>hud.learned.includes(r.id))&&<div className="evidence-list"><h3>Unterlagen eurer Rettungsroute</h3>{REGIONAL_STORY.filter(r=>hud.learned.includes(r.id)).map(r=><article key={r.id}><h4>{r.place} · {r.title}</h4><p>{r.lines.join(' ')}</p></article>)}</div>}
+        {journalTab==='notes'&&REGIONAL_STORY.some(r=>hud.learned.includes(r.id))&&<div className="evidence-list"><h3>Menschen und abgeschlossene Hilfseinsätze</h3>{REGIONAL_STORY.filter(r=>hud.learned.includes(r.id)).map(r=><article key={r.id}><h4>{r.place} · {r.title}</h4><p>{r.lines.join(' ')}</p></article>)}</div>}
       </section>}
 
       {location && !dialogue && screen === 'playing' && <section className="location-card"><small>GEBIET BETRETEN</small><h2>{location.name}</h2><p>{location.subtitle}</p></section>}
@@ -1610,18 +1754,18 @@ export default function Game() {
       {screen === 'title' && <section className="title-card fps-title">
         <p className="eyebrow">OPEN WORLD SURVIVAL · START IN FICHTENAU · 09:00 UHR</p>
         <h1>NACHT<span>WACHE</span></h1>
-        <p className="tagline">Ein letzter Konvoi. Eine stabile Dosis. Und niemand bleibt zurück.</p>
+        <p className="tagline">Hilf den Menschen. Sichere die Dörfer. Entdecke eine gemeinsame Hoffnung.</p>
         <div className="start-actions"><button type="button" onClick={()=>apiRef.current?.continue()} disabled={!loaded||!savedGame}>WEITERSPIELEN <span>→</span></button><button type="button" className="secondary" onClick={start} disabled={!loaded}>{loaded?'NEUES SPIEL':'TANNWALD WIRD GELADEN…'} <span>↻</span></button></div>
         <p className="save-summary" role="status">{savedGame?`Gespeichert · Kapitel ${CAMPAIGN[savedGame.progress.stage].chapter+1} · ${CAMPAIGN[savedGame.progress.stage].title} · Tag ${daylightAt(savedGame.progress.elapsed).day}, ${daylightAt(savedGame.progress.elapsed).clock}`:'Noch kein Spielstand vorhanden.'}</p>
         {savedGame&&<p className="save-note">Automatische Speicherung in diesem Browser. Neues Spiel ersetzt deinen bisherigen Durchgang.</p>}
         {saveError&&<p className="asset-warning" role="status">{saveError}</p>}
         <div className="controls"><b>WASD</b> Bewegen <b>MAUS</b> Umschauen / Schießen <b>E</b> Interagieren <b>R</b> Nachladen <b>F</b> Licht <b>SHIFT</b> Sprint</div>
-        <div className="controls"><b>1–8</b> Items benutzen <b>Q</b> Waffe wechseln <b>J / M</b> Karte, Inventar & Briefe</div>
+        <div className="controls"><b>1–5</b> Hotbar benutzen <b>I</b> Inventar verwalten <b>Q</b> Waffe wechseln <b>J / M</b> Journal & Karte</div>
         {assetErrors.length > 0 && <p role="status" className="asset-warning">{assetErrors.length} Assets fehlen. Ersatzdarstellungen sind aktiv.</p>}
-        <p className="story-hook">{STORY_GOAL} Stelle Maras Funkkontakt her, rette Noah und folge Webers Spur zur stabilen Dosis. Unterwegs lernst du, dich zu versorgen, leise zu kämpfen und sichere Schlafplätze einzurichten.</p>
+        <p className="story-hook">{STORY_GOAL} Versorge Jonas, bringe Maras Funkgerät zum Laufen und hilf den Menschen auf dem Weg durch die Region. Unterwegs lernst du, dich zu versorgen, leise zu kämpfen und sichere Schlafplätze einzurichten.</p>
         <div className="desktop-note">KLICKEN AKTIVIERT DIE MAUSSTEUERUNG · KOPFHÖRER EMPFOHLEN</div>
       </section>}
-      {screen === 'paused' && <section className="overlay-card compact"><p className="eyebrow">MISSION PAUSIERT</p><h2>Bleib leise.</h2><p>1 Verband · 2 Ration · 3 Batterie · 4 Fackel · 5 Sender reparieren<br />6 Wasser · 7 Antibiotika · 8 Weste · Q Waffenwechsel<br />E sammeln / lesen · J Karte & Fundstücke · F Taschenlampe</p><button type="button" onClick={resume}>WEITERSPIELEN <span>→</span></button><button type="button" onClick={() => apiRef.current?.journal()}>FELDJOURNAL <span>→</span></button><button type="button" className="secondary" onClick={()=>apiRef.current?.menu()}>SPEICHERN & HAUPTMENÜ <span>↩</span></button></section>}
+      {screen === 'paused' && <section className="overlay-card compact"><p className="eyebrow">MISSION PAUSIERT</p><h2>Bleib leise.</h2><p>1–5 verwendet deine frei belegte Hotbar.<br />I öffnet dein Inventar: verschieben, tauschen und Hotbar belegen.<br />Q Waffenwechsel · E sammeln / lesen · J Journal · M Karte · F Taschenlampe</p><button type="button" onClick={resume}>WEITERSPIELEN <span>→</span></button><button type="button" onClick={() => apiRef.current?.journal()}>FELDJOURNAL <span>→</span></button><button type="button" className="secondary" onClick={()=>apiRef.current?.menu()}>SPEICHERN & HAUPTMENÜ <span>↩</span></button></section>}
       {screen === 'shelter' && shelter && shelterState && <section className="overlay-card shelter-card" role="dialog" aria-modal="true" aria-label="Unterschlupf verwalten">
         <p className="eyebrow">UNTERSCHLUPF · TAG {daylightAt(hud.elapsed).day} · {daylightAt(hud.elapsed).clock}</p><h2>{shelter.name}</h2>
         <ul><li>Fenster vernagelt: {shelterState.windows.filter(Boolean).length}/4</li><li>Türen verstärkt: {shelterState.reinforced.filter(Boolean).length}/2 · geschlossen: {shelterState.closed.filter(Boolean).length}/2</li><li>Schlafplatz: {shelterState.bed?'vorbereitet':'1 Ration benötigt'}</li></ul>

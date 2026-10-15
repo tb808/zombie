@@ -1,14 +1,14 @@
 import { START_POINTS } from './shelterSites.ts';
 export const ITEMS = {
-  medkit: { name: 'Verband', key: '1', purpose: 'Heilt 40 Gesundheit', color: '#ff776b', limit: 5 },
-  ration: { name: 'Ration', key: '2', purpose: 'Füllt Ausdauer; 20 s sparsamer sprinten', color: '#efbd73', limit: 5 },
-  battery: { name: 'Batterie', key: '3', purpose: 'Lädt die Taschenlampe vollständig', color: '#90dce5', limit: 5 },
-  flare: { name: 'Leuchtfackel', key: '4', purpose: 'Lenkt Infizierte 12 s vom Spieler ab', color: '#f99d62', limit: 5 },
-  scrap: { name: 'Ersatzteile', key: '5', purpose: '3 Teile: Sender verstärken (−10 s)', color: '#c1cbbf', limit: 12 },
-  water: { name: 'Wasser', key: '6', purpose: 'Stillt Durst; verhindert Erschöpfung', color: '#8acde0', limit: 5 },
-  antibiotic: { name: 'Antibiotika', key: '7', purpose: 'Behandelt die Infektion vollständig', color: '#b7a5e4', limit: 3 },
-  armor: { name: 'Schutzweste', key: '8', purpose: 'Rüstet 100 Schutz aus; absorbiert 55% Schaden', color: '#99bba0', limit: 2 },
-  planks: { name: 'Bretter', key: 'E', purpose: 'Am Fenster: 2 Bretter zum Vernageln', color: '#d2a56b', limit: 32 },
+  medkit: { name: 'Verband', purpose: 'Heilt 40 Gesundheit', color: '#ff776b', limit: 5 },
+  ration: { name: 'Ration', purpose: 'Füllt Ausdauer; 20 s sparsamer sprinten', color: '#efbd73', limit: 5 },
+  battery: { name: 'Batterie', purpose: 'Lädt die Taschenlampe vollständig', color: '#90dce5', limit: 5 },
+  flare: { name: 'Leuchtfackel', purpose: 'Lenkt Infizierte 12 s vom Spieler ab', color: '#f99d62', limit: 5 },
+  scrap: { name: 'Ersatzteile', purpose: '3 Teile: Sender verstärken (−10 s)', color: '#c1cbbf', limit: 12 },
+  water: { name: 'Wasser', purpose: 'Stillt Durst; verhindert Erschöpfung', color: '#8acde0', limit: 5 },
+  antibiotic: { name: 'Antibiotika', purpose: 'Behandelt die Infektion vollständig', color: '#b7a5e4', limit: 3 },
+  armor: { name: 'Schutzweste', purpose: 'Rüstet 100 Schutz aus; absorbiert 55% Schaden', color: '#99bba0', limit: 2 },
+  planks: { name: 'Bretter', purpose: 'Am Fenster: 2 Bretter zum Vernageln', color: '#d2a56b', limit: 32 },
 } as const;
 export type ItemKind = keyof typeof ITEMS;
 export type LootKind = ItemKind | 'ammo' | 'shells' | 'rifleAmmo';

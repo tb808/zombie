@@ -28,7 +28,7 @@ async (page) => {
   check(Math.abs(position[1]-b.level-1.72)<.2,'Bridge height matches feet');
   check(await page.evaluate(()=>window.__nachtwache.blocked(825,440)),'Deep water is impassable');
   // Earn Mara's map through the existing interaction and inspect all new layers.
-  await page.evaluate(()=>{const g=window.__nachtwache;g.start();g.teleport(-53,-37);g.interact();while(g.state().dialogue)g.nextDialogue();});
+  await page.evaluate(()=>{const g=window.__nachtwache;g.start();const mara=g.campaign().start.mara;g.teleport(mara.x,mara.z);g.interact();while(g.state().dialogue)g.nextDialogue();});
   await page.keyboard.press('m');const map=page.locator('.map-viewport svg');await map.waitFor();
   check(await map.getAttribute('viewBox')==='-1200 -1000 2400 2000','World map matches playable bounds');
   check(await map.locator('text').filter({hasText:'FORT EICHE'}).count()===1,'Military base labelled');

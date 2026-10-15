@@ -20,9 +20,11 @@
     "check:interiors": "node --experimental-strip-types scripts/verify-interiors.mjs",
     "check:graphics": "node --experimental-strip-types scripts/verify-graphics.mjs",
     "check:rendering": "node --experimental-strip-types scripts/verify-render-budget.mjs",
+    "check:loot": "node --experimental-strip-types scripts/verify-loot-visuals.mjs",
     "check:region": "node --experimental-strip-types scripts/verify-region.mjs",
-    "check:nature": "node --experimental-strip-types scripts/verify-terrain-nature.mjs",
-    "check:settlements": "node --experimental-strip-types scripts/verify-settlements.mjs"
+    "check:nature": "node --experimental-strip-types scripts/verify-terrain-nature.mjs && node --experimental-strip-types scripts/verify-wilderness.mjs",
+    "check:settlements": "node --experimental-strip-types scripts/verify-settlements.mjs",
+    "check:inventory": "node --experimental-strip-types scripts/verify-inventory.mjs"
   },
   "dependencies": {
     "next": "16.2.6",

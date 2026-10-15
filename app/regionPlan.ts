@@ -86,7 +86,12 @@ export const WATER_LINES = [
   {id:'hochbach',kind:'stream',width:4,samples:sampleLine([[-980,-980],[-850,-780],[-790,-630],[-930,-440],[-1050,-200],[-970,230]].map(([x,z])=>({x,z})))},
 ];
 export const WATER_SEGMENTS = segmentsOf(WATER_LINES).map((s,i) => ({...s,width:s.width*(.85+.22*Math.sin(i*.14))}));
-export const LAKES = [{id:'waldsee',name:'WALDSEE',x:-540,z:790,rx:108,rz:70}, {id:'muehlenteich',name:'MÜHLENTEICH',x:-560,z:-90,rx:42,rz:28}];
+export const LAKES = [
+  {id:'waldsee',name:'WALDSEE',x:-540,z:790,rx:108,rz:70}, {id:'muehlenteich',name:'MÜHLENTEICH',x:-560,z:-90,rx:42,rz:28},
+  {id:'wiesenteich',name:'WIESENTEICH',x:-1000,z:405,rx:19,rz:14},
+  {id:'schilfweiher',name:'SCHILFWEIHER',x:-70,z:580,rx:23,rz:16},
+  {id:'steinweiher',name:'STEINWEIHER',x:970,z:-590,rx:17,rz:12},
+];
 
 // A spatial grid keeps placement and actor queries independent of world area.
 export class SpatialIndex<T extends Obstacle> {
@@ -126,7 +131,8 @@ export const FIELDS = [
   [-1000,30,100,65],[-250,470,90,64],[10,280,72,55],[220,660,120,80],[440,680,90,70],[540,310,62,42],
 ].map(([x,z,hx,hz],i)=>({id:`field-${i}`,x,z,hx,hz,crop:i%3}));
 export const fieldAt=(x:number,z:number)=>FIELDS.find(f=>Math.abs(x-f.x)<f.hx&&Math.abs(z-f.z)<f.hz);
-export const FORESTS=[[-550,-805,550,210],[-1010,610,180,310],[-480,710,450,255],[-370,470,270,230],[1070,-430,155,380],[1100,780,160,220]];
+export const FORESTS=[[-550,-805,550,210],[-1010,610,180,310],[-480,710,450,255],[-370,470,270,230],[1070,-430,155,380],[1100,780,160,220],
+  [-950,55,175,150],[-80,580,210,190],[120,-685,230,170],[-920,-470,150,155],[300,490,160,110]];
 const CLEARINGS=[[-320,600,38],[-430,790,42],[10,-870,62],[-780,-850,50],[-400,-820,160],[-740,500,125],[-650,-530,165]];
 export function forestDensity(x:number,z:number){if(inLegacy(x,z)||fieldAt(x,z)||waterClearance(x,z)<8||zoneAt(x,z)?.biome==='city')return 0;let d=0;for(const [cx,cz,hx,hz]of FORESTS)d=Math.max(d,1-smooth(.65,1.08,Math.hypot((x-cx)/hx,(z-cz)/hz)));for(const[cx,cz,r]of CLEARINGS)d*=smooth(r,r+35,Math.hypot(x-cx,z-cz));return d*(.72+.28*Math.sin(x*.012)*Math.cos(z*.009));}
 
@@ -184,6 +190,17 @@ function planStructures(){
   return out;
 }
 export const STRUCTURES=planStructures();
+// Two POIs previously had no accepted interior parcel. Give their story search
+// an actual barn/garage while keeping existing generated pickup manifests stable.
+for(const id of ['birkenhof','fuel']){
+  const poi=REGION_POIS.find(p=>p.id===id)!;
+  if(STRUCTURES.some(b=>b.zone===id&&b.enterable))continue;
+  for(const [dx,dz] of [[25,-22],[-25,22],[25,40],[-30,-30],[45,-20],[10,45],[-45,10],[50,40]]){
+    const x=poi.x+dx,z=poi.z+dz,b:Structure={id:`mission-building-${id}`,x,z,hx:10,hz:7,width:20,depth:14,height:6,kind:id==='birkenhof'?'barn':'warehouse',zone:id,rotation:0,color:0x8e8272,enterable:true};
+    if(waterClearance(x,z)<21||roadClearance(x,z)<17||STRUCTURES.some(o=>overlaps(b,o,4))||SITE_RESERVATIONS.some(o=>overlaps(b,o,5)))continue;
+    STRUCTURES.push(b);break;
+  }
+}
 export const PARKED_CARS=WORLD_ZONES.filter(z=>z.biome==='village'||z.id==='INDUSTRIAL_ZONE').flatMap(p=>{
   for(let i=0;i<24;i++){const angle=i*2.4,r=18+i*1.5,x=p.x+Math.cos(angle)*r,z=p.z+Math.sin(angle)*r;
     if(roadClearance(x,z)>5&&waterClearance(x,z)>7&&!SITE_RESERVATIONS.some(b=>overlaps({x,z,hx:1.8,hz:2.5},b,3))&&!STRUCTURES.some(b=>overlaps({x,z,hx:1.8,hz:2.5},b,3)))return [{x,z,color:p.risk}];
@@ -201,14 +218,17 @@ export const REGION_LOOT:{kind:LootKind;x:number;z:number;count:number}[]=[
     {kind:(p.risk>=2?'antibiotic':'medkit') as LootKind,x:p.x-3,z:p.z,count:2},
   ]),
   ...REGION_POIS.flatMap(p=>[{kind:(p.kind==='research'?'antibiotic':p.kind==='farm'?'ration':p.risk>=2?'rifleAmmo':'scrap') as LootKind,x:p.x,z:p.z,count:p.risk>=2&&p.kind!=='research'?30:2},{kind:'water' as LootKind,x:p.x+3,z:p.z,count:2}]),
-  ...STRUCTURES.filter(s=>s.enterable).map((s,i)=>({kind:(s.zone==='MILITARY_BASE'?'rifleAmmo':s.zone==='research'?'medkit':s.zone==='MAIN_CITY'?['ammo','medkit','water','scrap'][i%4]:'ration') as LootKind,x:s.x,z:s.z,count:s.zone==='MILITARY_BASE'?30:s.zone==='MAIN_CITY'&&i%4===0?24:2})),
+  ...STRUCTURES.filter(s=>s.enterable&&!s.id.startsWith('mission-building-')).map((s,i)=>({kind:(s.zone==='MILITARY_BASE'?'rifleAmmo':s.zone==='research'?'medkit':s.zone==='MAIN_CITY'?['ammo','medkit','water','scrap'][i%4]:'ration') as LootKind,x:s.x,z:s.z,count:s.zone==='MILITARY_BASE'?30:s.zone==='MAIN_CITY'&&i%4===0?24:2})),
 ];
 
 export type TreePlacement=Point&{species:'pine'|'broadleaf';variant:number;scale:number;rotation:number};
-export function planTrees(){const trees:TreePlacement[]=[];const occupied=new SpatialIndex<Obstacle>();for(const s of STRUCTURES)occupied.add(s);let n=1;
-  for(let z=REGION_BOUNDS.minZ+14;z<REGION_BOUNDS.maxZ-14;z+=14)for(let x=REGION_BOUNDS.minX+14;x<REGION_BOUNDS.maxX-14;x+=14,n++){
-    const wx=x+(seeded(n*13)-.5)*10,wz=z+(seeded(n*19)-.5)*10,d=forestDensity(wx,wz);
-    if(seeded(n*23)>d*.88||roadClearance(wx,wz)<7||occupied.query(wx,wz,9).length||SITE_RESERVATIONS.some(site=>overlaps({x:wx,z:wz,hx:2,hz:2},site,5))||REGION_LOOT.some(p=>Math.hypot(p.x-wx,p.z-wz)<8)||PARKED_CARS.some(p=>Math.hypot(p.x-wx,p.z-wz)<8)||REGION_SIGNS.some(p=>Math.hypot(p.x-wx,p.z-wz)<5))continue;
-    trees.push({x:wx,z:wz,species:seeded(n*37)>.28?'pine':'broadleaf',variant:n%4,scale:.95+seeded(n*29)*.65,rotation:seeded(n*31)*Math.PI*2});
+export function planTrees(){const trees:TreePlacement[]=[],trunks=new SpatialIndex<Obstacle>(16);const occupied=new SpatialIndex<Obstacle>();for(const s of STRUCTURES)occupied.add(s);let n=1;
+  // Close stands alternate with open glades. Crowns may overlap, while trunks,
+  // routes, cultivated fields and developed parcels retain walking space.
+  for(let z=REGION_BOUNDS.minZ+10;z<REGION_BOUNDS.maxZ-10;z+=8.5)for(let x=REGION_BOUNDS.minX+10;x<REGION_BOUNDS.maxX-10;x+=8.5,n++){
+    const wx=x+(seeded(n*13)-.5)*6.5,wz=z+(seeded(n*19)-.5)*6.5,d=forestDensity(wx,wz);
+    const stand=.65+.35*smooth(-.3,.65,Math.sin(wx*.026+Math.sin(wz*.013))*Math.cos(wz*.021));
+    if(seeded(n*23)>d*stand||roadClearance(wx,wz)<7||occupied.query(wx,wz,9).length||trunks.query(wx,wz,2.9).length||SITE_RESERVATIONS.some(site=>overlaps({x:wx,z:wz,hx:2,hz:2},site,5))||REGION_LOOT.some(p=>Math.hypot(p.x-wx,p.z-wz)<8)||PARKED_CARS.some(p=>Math.hypot(p.x-wx,p.z-wz)<8)||REGION_SIGNS.some(p=>Math.hypot(p.x-wx,p.z-wz)<5))continue;
+    trees.push({x:wx,z:wz,species:seeded(n*37)>.28?'pine':'broadleaf',variant:n%4,scale:.8+seeded(n*29)*.85,rotation:seeded(n*31)*Math.PI*2});trunks.add({x:wx,z:wz,hx:.1,hz:.1});
   }return trees;}
 export const TREES=planTrees();

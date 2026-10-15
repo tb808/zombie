@@ -10,7 +10,7 @@ Der Fluss **Aue**, **Birkenbach** und **Hochbach** bilden ein geschwungenes Gew�
 
 **Fort Eiche** steht auf einer abgelegenen Anhöhe mit umzäuntem Hof, bewachbarer Zufahrt, fünf begehbaren Hallen, Wachtürmen, Containern und Helipad. Weitere Ziele sind Bauernhöfe, Jagdhütte, Campingplatz, Kirche, Tankstelle, Rasthof, Radarstation, Steinbruch, Umspannwerk und ein verlassenes Lazarus-Außenlabor. Die ruhigeren Zwischenräume bleiben bewusst unbebaut. Je nach Region gelten vier Risikostufen mit 12/22/32/40 aktiven Infizierten als Obergrenzen und unterschiedlicher Verstärkungsrate; militärische Orte erhalten häufiger Brecher und militärische Vorräte.
 
-122 zusätzliche Gebäude, rund 2.300 regional instanzierte Bäume und zusätzliche Vorratsfundorte erweitern die bisherigen Inhalte. Zu den alten 21 Innenräumen kommen 13 regionale Safehouses hinzu. Die Hauptquest führt in 49 Schritten durch alle vier Dörfer, die Stadtgebiete und sämtliche zwölf abgelegenen Orte. Maras Karte zeigt das ganze Straßennetz, Gewässer, Felder, Waldgebiete, Gebäude und wichtige Orte. Bis zu 2.400 % Zoom und „Mein Standort“ zeigen auch lokale Details.
+124 zusätzliche Gebäude, rund 7.600 regional instanzierte Bäume und zusätzliche Vorratsfundorte erweitern die bisherigen Inhalte. Dazu gehören jetzt eine echte Scheune am Birkenhof und eine Tankstellengarage für die Suchaufträge. Zu den alten 21 Innenräumen kommen 13 regionale Safehouses hinzu. Die Hauptquest führt in 49 Missionen durch alle vier Dörfer, die Stadtgebiete und sämtliche zwölf abgelegenen Orte. Maras Karte zeigt das ganze Straßennetz, Gewässer, Felder, Waldgebiete, Gebäude und wichtige Orte. Bis zu 2.400 % Zoom und „Mein Standort“ zeigen auch lokale Details.
 
 Die Planung ist in `app/regionPlan.ts` abgelegt, das Gelände in `app/regionTerrain.ts` und die abschnittsweise Darstellung/Kollision in `app/regionWorld.ts`. Erweiterung und Gestaltungsregeln stehen in [docs/world-design.md](docs/world-design.md).
 
@@ -19,6 +19,10 @@ Die Planung ist in `app/regionPlan.ts` abgelegt, das Gelände in `app/regionTerr
 Stadt, Dörfer und Industriehöfe enthalten jetzt rund 1.400 zusätzliche Alltagsobjekte und 24 kleine Szenen: Caféterrassen, Haltestellen, Marktplatz, Spielbereich, Baustelle, Ladehof, Parkplatz und Evakuierungsorte. Straßenlaternen, Ampeln, Überwege, Bordsteine, Parkbuchten, unterschiedliche Fahrzeuge, Hauszugänge, Briefkästen, Hecken, Fahrräder und zurückgelassene Gegenstände verbinden die Gebäude mit ihrer Umgebung. Die Dörfer erhalten passende Landwirtschafts- und Forstdetails; Aschenrode zeigt einzelne Unfall- und Sperrstellen.
 
 Vorhandene Assets werden wiederverwendet. Instanzierte Komponenten in 80-Meter-Zellen und getrennte Sichtweiten begrenzen die Darstellung; die zusätzliche Straßenbeleuchtung verwendet das bestehende Lichtbudget und Lenz' Stromversorgung. `app/settlementPlan.ts` plant die Details, `app/settlementDetail.ts` stellt sie dar. Gestaltungsregeln und Prüfungen stehen in [docs/settlement-details.md](docs/settlement-details.md). `npm run check:settlements` prüft Stellflächen, Fahrbahnen, Türen, Vorräte, Modelldimensionen, Instancing und Culling.
+
+## Natur und Wildtiere
+
+Zusätzliche Hügel, Felsgruppen und dichtere Waldinseln unterbrechen die offenen Grünflächen. Vereinfachte Baumkronen ermöglichen rund 7.600 regionale Bäume mit größeren Sichtweiten. Drei kleine Teiche ergänzen Waldsee und Mühlenteich; Schilf, Seerosen, Ufersteine und Treibholz kleiden die Gewässer aus. 56 Rehe, Hasen und Enten wandern, hüpfen und schwimmen in passenden Lebensräumen und weichen dem Spieler aus. Details und Prüfungen stehen in [docs/wilderness.md](docs/wilderness.md).
 
 ## Starten
 
@@ -55,9 +59,10 @@ Der Pages-Build erzeugt die statische Website in `out/`, einschließlich aller M
 | E | Vorräte, Hinweise, Gespräche, Türen und Geräte |
 | E / Leertaste / Enter im Gespräch | Nächste Aussage; am Ende Gespräch beenden |
 | F | Taschenlampe |
-| 1 / 2 / 3 / 4 | Verband / Ration / Batterie / Leuchtfackel |
-| 5 | Sender mit drei Ersatzteilen verstärken |
-| 6 / 7 / 8 | Wasser / Antibiotika / Schutzweste |
+| 1–5 | Gegenstand auf dem frei belegten Hotbar-Platz benutzen / Waffe ausrüsten |
+| I | Inventar öffnen / schließen; pausiert |
+| Ziehen oder Gegenstand + Zielplatz anklicken im Inventar | Stapel und Waffen verschieben, Positionen tauschen, Hotbar belegen oder leeren |
+| 1–5 nach Auswahl im Inventar | Gewählten Gegenstand auf diesen Hotbar-Platz legen; belegte Plätze werden getauscht |
 | M | Maras Weltkarte öffnen / schließen; pausiert |
 | J / Tab | Journal: Karte, Waffen, Vorräte, Aufgaben und Hinweise; pausiert |
 | Mausrad / + / − auf der Karte | Von der gesamten Welt bis zu 2.400 % zoomen |
@@ -65,21 +70,23 @@ Der Pages-Build erzeugt die statische Website in `out/`, einschließlich aller M
 
 ## Spielablauf
 
-Ein neues Spiel beginnt im Rangerlager **Fichtenau**, dem am weitesten vom Stadtzentrum entfernten Dorf. Mara erklärt Elias dort den Ausbruch, Falks Rolle und die gescheiterte Evakuierung. Gespräche erscheinen als einzelne Untertitel mit Sprechername; die nächste Aussage folgt erst auf E, Leertaste, Enter oder den Weiter-Button. Währenddessen pausieren Weltzeit, Bewegung und Kampf. Nach Maras Einführung erhält Elias ihre Karte und den Auftrag, die Brennstoffzelle aus dem örtlichen Holzlager zurückzubringen. Die Karte zeigt von Anfang an die gesamte Spielwelt mit allen wichtigen Orten, Straßen, Gebäuden, Unterschlüpfen, Spielerposition und Missionsziel. Mausrad und Plus/Minus zoomen, Ziehen verschiebt den Ausschnitt. „Ganze Karte“ und „Mein Standort“ helfen bei der Orientierung. Ausrüstung und Fundstücke bleiben schon vor der Kartenübergabe verfügbar.
+Ein neues Spiel beginnt im Rangerlager **Fichtenau**, dem am weitesten vom Stadtzentrum entfernten Dorf. Mara erklärt Elias dort die Lage und organisiert mit ihm die erste Hilfstour. Gespräche erscheinen als einzelne Untertitel mit Sprechername; die nächste Aussage folgt erst auf E, Leertaste, Enter oder den Weiter-Button. Währenddessen pausieren Weltzeit, Bewegung und Kampf. Nach Maras Einführung erhält Elias ihre Karte und den Auftrag, die Brennstoffzelle aus dem örtlichen Holzlager zurückzubringen. Die Karte zeigt von Anfang an die gesamte Spielwelt mit allen wichtigen Orten, Straßen, Gebäuden, Unterschlüpfen, Spielerposition und Missionsziel. Mausrad und Plus/Minus zoomen, Ziehen verschiebt den Ausschnitt. „Ganze Karte“ und „Mein Standort“ helfen bei der Orientierung. Ausrüstung und Fundstücke bleiben schon vor der Kartenübergabe verfügbar.
 
 Auf der Karte markieren grüne Haus- und Schildsymbole gesicherte Safehouses und bewachte Unterschlüpfe. R zeigt den Respawnpunkt; ein gelber Rand kennzeichnet einen offenen Eingang. Bereits angesprochene NPCs erscheinen mit einem lila Personensymbol. Die Namenslisten unter der Karte zoomen direkt zum gewählten Ort oder Gesprächspartner. Kontakte bleiben beim Speichern erhalten; Noahs Markierung zeigt seine aktuelle Position.
 
-Die Hauptstory führt in **49 aufeinanderfolgenden Schritten durch vier Kapitel**. Das gemeinsame Ziel ist von Maras erstem Gespräch an klar: Noah und die stabile Dosis Gegenmittel zum letzten Konvoi bringen. Jeder Auftrag nennt im HUD seinen Grund und die nächste konkrete Handlung; das Rettungsziel bleibt sichtbar. Das Journal zeigt die vier Kapitel, den erreichten Fortschritt und die gelesenen Transportberichte. Bens Suche ist ausdrücklich ein freiwilliger Nebenauftrag.
+Die Hauptstory führt in **49 Missionen durch vier Kapitel**. Zuerst hilfst du Menschen und baust Rückzugsorte auf. Über Versorgung und gemeinsame Einsätze entsteht der Kontakt zu Weber; erst ein Labortest bestätigt die Chance auf ein Heilmittel. HUD, Karte und Journal zeigen die aktuelle Teilaufgabe und ihren Zweck. Bens Suche bleibt ein freiwilliger Nebenauftrag.
 
-**Aufbruch in Fichtenau:** Mara braucht Strom für das Funkgerät. Karte, Vorräte und Wasser bereiten den Weg zum Holzlager vor; Jonas' Waffenprüfung führt Zielen, Nachladen und die leise Axt ein. Nach der Rückkehr sichert ihr das örtliche Forsthaus, prüft die Lampe, setzt einen Respawnpunkt und schlaft bis zum Morgen. **Noahs Funkspur:** Vom See-Campingplatz führen zusammenhängende Funkberichte über Jagdhütte und Wiesenhof zur alten Rangerstation und zum Markt. Eine Fackel schafft die Ablenkung für Noahs Rettung. **Die Spur des Kühltransports:** Noahs Hinweis auf W-07 führt über Westwiesen, Birkenhof, Landwirtschaft, Kornweiler, Kirche, Hochforst, Radarstation, Fort Eiche, Außenlabor, Aschenrode und Rasthof zur Industrie und Innenstadt. Die Berichte erklären jede Umleitung. Weber braucht das Archivprotokoll: Lenz' Generator, Polizeischlüssel, Jagdflinte und Keycard ermöglichen den Zugang und identifizieren die stabile Dosis C-07. **Das letzte Signal:** Die Kühlkette führt durch die Vororte, Tankstelle und Brückenfeld zum Umspannwerk. Dort schaltet ihr den Strom ein und bergt am Steinbruch den passenden Transportbehälter. Mit der gekühlten Dosis und dem verstärkten Sender begleitet ihr Noah zum Turm und verteidigt euch bis zur Abholung. Storygespräche schließen ihren Auftrag erst nach der letzten Aussage ab.
+**Ein Licht in Fichtenau:** Versorge Jonas, lerne Ausrüstung und Kampf kennen, bringe Maras Funkgerät zum Laufen und sichere die Forstunterkunft. **Niemand bleibt zurück:** Durchsuche eine Campinghütte nach Medizin, behandle Eva, befreie Tom, begleite Oskar und sichere den Markt. **Gemeinsam wieder aufbauen:** Berge Lebensmittel, repariere mit Mila die Wasserpumpe und sichere Kornweiler. Schütze Funker und Mechaniker, rette Gestrandete und untersuche mit Noah eine Probe im Außenlabor. **Eine Chance für alle:** Versorge eine Krankenstation, baue mit Jo die Kühlung auf, schalte das Umspannwerk zu und berge den Behälter mit Otto. Danach folgen C-07 und die gemeinsame Endverteidigung. Die 23 ehemaligen Briefstationen enthalten jetzt 81 Teilaufgaben, zehn Handlungsarten und 17 zusätzliche NPCs. Arbeitszeiten, Begleiterwege und Sicherungen haben echte Abschlussbedingungen. Erfolgreiche Hilfseinsätze verringern die reguläre Gegnerverstärkung im jeweiligen Gebiet.
 
 Am Start stehen **Weiterspielen** und **Neues Spiel**. Der Spielstand wird automatisch alle drei Sekunden sowie bei Gesprächen, Pausen, Schlafen, beim Verlassen und bei Tod oder Sieg lokal in diesem Browser gespeichert. Er enthält Quest und Gesprächsposition, Spieler und Noah, Uhrzeit, Gesundheit, Waffen und Munition, Inventar, genommenes Loot, Gegner, Türen, Tore, Barrikaden und Respawnpunkt. Weiterspielen lädt auch nach einem Neuladen diese Welt; neues Spiel ersetzt den bisherigen Durchgang. Beschädigte oder zur Spielwelt inkompatible Daten deaktivieren Weiterspielen mit einem Hinweis und verhindern kein neues Spiel. Es gibt einen lokalen Spielstand, keine Synchronisierung zwischen Browsern oder Geräten.
 
+Das Inventar hat einen frei sortierbaren Rucksack und genau **fünf Hotbar-Plätze** für Waffen oder Vorratsstapel. **I** öffnet direkt die Verwaltung. Ziehen oder zwei Klicks verschieben einen Gegenstand; ein belegter Zielplatz tauscht beide Positionen. Die Detailansicht erlaubt Benutzen, Ausrüsten und Zurücklegen in den Rucksack. Neue Funde landen im Rucksack, leere Stapel geben ihren Platz frei. Die Anordnung wird nach jeder Änderung gespeichert. Ältere Spielstände erhalten automatisch neue Plätze; Vorräte und Munition bleiben erhalten.
+
 Spielstände der bisherigen 26-Schritt-Kampagne werden übernommen: Die aktuelle Mission, Ausrüstung, verbrauchten Vorräte und vier bisherigen Häuser bleiben erhalten; die neuen regionalen Häuser starten ungesichert. **Neues Spiel** beginnt die vollständige Route ab Fichtenau. Die Route und regionalen Rückzugsorte stehen in [docs/campaign-route.md](docs/campaign-route.md).
 
-Noah navigiert um Gebäude und folgt dem Spieler nach seiner Befreiung. Am Sender muss er innerhalb von zwölf Metern angekommen sein. Anschließend gilt es, vierzig Sekunden im Umkreis von achtzehn Metern zu überleben. Die in der Hauptquest erforderliche Verstärkung mit drei Ersatzteilen verkürzt die Zeit auf dreißig Sekunden.
+Noah navigiert um Gebäude, folgt dem Spieler nach seiner Befreiung und unterstützt ihn im Kampf. Weitere Begleiter warten bei Gefahr oder zu großem Abstand; gemeinsame Arbeiten pausieren ohne Deckung und Nähe. Teilziele, Arbeitszeiten, Angriffswellen und Begleiterpositionen werden mitgespeichert. Am Sender muss Noah innerhalb von zwölf Metern angekommen sein. Anschließend gilt es, vierzig Sekunden im Umkreis von achtzehn Metern zu überleben. Die in der Hauptquest erforderliche Verstärkung mit drei Ersatzteilen verkürzt die Zeit auf dreißig Sekunden.
 
-**17 begehbare Gebäude** lassen sich zu eigenen Unterschlüpfen ausbauen: je ein neues Safehouse in allen 13 Regionsgebieten sowie die bisherigen **Forsthaus am Dorfrand**, **Feuerwache 04**, **Lindenhof** und **Hof Birkenrain**. Das erste Haus in Fichtenau gehört zur Einführung, weitere Häuser können unterwegs freiwillig gesichert werden. Öffne das Hoftor mit **E am rechten Pfosten** und räume den Innenraum. Mit **E** vernagelst du jedes der vier offenen Fenster für zwei Bretter, verstärkst die beiden Türen für je ein Ersatzteil und bereitest das Bett für eine Ration vor. Baumaterial liegt vor jedem Haus. Bretter versperren tatsächlich Sicht, Schüsse und Bewegung. Verstärkte Türen lassen sich mit E öffnen und schließen. Erst vier vernagelte Fenster, zwei geschlossene und verstärkte Türen und das vorbereitete Bett erlauben die Aktivierung am Bett. Nach Aktivierung werden UV-Lampen installiert. Bei Dunkelheit halten sie Infizierte auch bei offener Tür oder offenem Tor zurück. Tagsüber zählen die tatsächlichen Barrikaden; zum Schlafen müssen weiterhin beide Haustüren geschlossen sein. Ungesicherte oder noch nicht aktivierte Häuser haben keine UV-Lampen und keinen automatischen Schutz.
+**17 begehbare Gebäude** lassen sich zu eigenen Unterschlüpfen ausbauen: je ein neues Safehouse in allen 13 Regionsgebieten sowie die bisherigen **Forsthaus am Dorfrand**, **Feuerwache 04**, **Lindenhof** und **Hof Birkenrain**. Fichtenau gehört zur Einführung; Kornweilers Gemeindehaus wird später für die Dorfbewohner gesichert. Weitere Häuser können unterwegs freiwillig ausgebaut werden. Öffne das Hoftor mit **E am rechten Pfosten** und räume den Innenraum. Mit **E** vernagelst du jedes der vier offenen Fenster für zwei Bretter, verstärkst die beiden Türen für je ein Ersatzteil und bereitest das Bett für eine Ration vor. Baumaterial liegt vor jedem Haus. Bretter versperren tatsächlich Sicht, Schüsse und Bewegung. Verstärkte Türen lassen sich mit E öffnen und schließen. Erst vier vernagelte Fenster, zwei geschlossene und verstärkte Türen und das vorbereitete Bett erlauben die Aktivierung am Bett. Nach Aktivierung werden UV-Lampen installiert. Bei Dunkelheit halten sie Infizierte auch bei offener Tür oder offenem Tor zurück. Tagsüber zählen die tatsächlichen Barrikaden; zum Schlafen müssen weiterhin beide Haustüren geschlossen sein. Ungesicherte oder noch nicht aktivierte Häuser haben keine UV-Lampen und keinen automatischen Schutz.
 
 **E am vorbereiteten Bett** öffnet die Unterschlupfverwaltung und pausiert das Spiel. Aktiviere den Ort, wähle deinen Respawnpunkt oder warte sicher bis 19 Uhr. Zwischen 19 und 06 Uhr kannst du bis **06:00 am folgenden Morgen** schlafen; das regeneriert Ausdauer und bis zu 35 Gesundheit, verbraucht aber Durst. Nach dem Tod führt „Im Unterschlupf aufwachen“ zum gewählten Bett. Questfortschritt, Ausrüstung, bereits genommenes Loot und alle ausgebauten Häuser bleiben erhalten; Munition und Vorräte werden nicht neu erzeugt. Noah kehrt mit dir zurück, die Haustüren schließen sich. Beim Tod während der letzten Verteidigung beginnt deren Timer erneut. Karte und Journal zeigen Baufortschritt und aktiven Respawnpunkt. Die automatische Speicherung erhält den Durchgang auch nach dem Neuladen. Nur „Neues Spiel“ setzt den Spielstand zurück.
 
@@ -134,6 +141,7 @@ Pistole (9 mm), Schrotflinte (12/70) und Karabiner (5.56 mm) haben eigene Magazi
 - `app/interiors.ts`: acht zusätzliche Erdgeschosse mit eigenen Raumthemen, prozeduralen Oberflächen, Vorräten und Briefen; Farbinformationen in der Geometrie erlauben gemeinsame Materialbatches.
 - `app/surfaces.ts`: elf deterministische Materialtypen mit Relief, Rauheit und Projektion in Weltkoordinaten.
 - `app/naturalAssets.ts`: verzweigte Bäume mit Blattgeometrie, geglättete Felsen, detaillierte Kisten/Fässer und abgerundete Fahrzeuge.
+- `app/lootVisuals.ts`: erkennbare Modelle für Vorräte und einsammelbare Questobjekte: Verbandrollen, Flaschen, Patronen, Batterien, Westen, Werkzeug, Kanister und Transportkoffer. Kopien teilen Geometrien, drei Materialien und einen Beschriftungsatlas. Fundstücke liegen ruhig auf und werden außerhalb von 100 Metern ausgeblendet.
 - `app/worldDetail.ts`: Vegetation und Straßeninfrastruktur mit geprüften Abständen, Stamm-/Möbelkollision und Entfernungsausblendung.
 - `app/regionPlan.ts`: deterministische Regionen, verbundenes Straßennetz, Gewässer, Brücken, Parzellen, Felder, Waldmasken, POIs, Loot und räumlicher Index.
 - `app/regionTerrain.ts`: erhaltenes Missionsgelände, regionale Hügel, Flussbetten, Gebäudefundamente, Straßenprofile und Brückendecks.
@@ -143,7 +151,8 @@ Pistole (9 mm), Schrotflinte (12/70) und Karabiner (5.56 mm) haben eigene Magazi
 - `app/environment.ts`: Weltzeit, Tageslicht, Unterschlüpfe und Abstandsprüfung.
 - `app/nightSurvival.ts`: Nachtstärke, Gegnerverteilung, UV-Zeiten und bedingter Schutz.
 - `app/shelterSites.ts`: regional verteilte Safehouses, Startpunkte und freigehaltene Bauflächen.
-- `app/regionalStory.ts`: zusammenhängende Funkspur und Transportberichte durch alle Gebiete.
+- `app/storyActivities.ts`: konkrete Hilfseinsätze, Teilaufgaben, NPCs, Arbeitsplätze und Belohnungen; `regionalStory.ts` erhält die bestehenden Importnamen.
+- `app/activityScene.ts`: sichtbare Sanitätskoffer, Versorgungskisten, Werkzeuge, Kühlmodule und betriebsfähige Geräte.
 - `app/safehouseScene.ts`: 22 Tore, echte Tor-Kollision und UV-Leuchten mit begrenzter Sichtweite.
 
 ```sh
@@ -156,10 +165,12 @@ npm run check:safehouses
 npm run check:interiors
 npm run check:graphics
 npm run check:rendering
+npm run check:loot
 npm run check:region
 npm run check:nature
 npm run check:campaign-region
 npm run check:save
+npm run check:inventory
 npm run build
 ```
 
@@ -176,11 +187,14 @@ npx --yes --package @playwright/cli playwright-cli -s=zombie run-code --filename
 npx --yes --package @playwright/cli playwright-cli -s=zombie run-code --filename scripts/browser-interiors.js
 npx --yes --package @playwright/cli playwright-cli -s=zombie run-code --filename scripts/browser-graphics.js
 npx --yes --package @playwright/cli playwright-cli -s=zombie run-code --filename scripts/browser-trees.js
+npx --yes --package @playwright/cli playwright-cli -s=zombie run-code --filename scripts/browser-loot-visuals.js
 npx --yes --package @playwright/cli playwright-cli -s=zombie run-code --filename scripts/browser-performance.js
 npx --yes --package @playwright/cli playwright-cli -s=zombie run-code --filename scripts/browser-render-stability.js
 npx --yes --package @playwright/cli playwright-cli -s=zombie run-code --filename scripts/browser-story.js
 npx --yes --package @playwright/cli playwright-cli -s=zombie run-code --filename scripts/browser-story-ending.js
 npx --yes --package @playwright/cli playwright-cli -s=zombie run-code --filename scripts/browser-save.js
+npx --yes --package @playwright/cli playwright-cli -s=zombie run-code --filename scripts/browser-inventory.js
+npx --yes --package @playwright/cli playwright-cli -s=zombie run-code --filename scripts/browser-activity-save.js
 npx --yes --package @playwright/cli playwright-cli -s=zombie run-code --filename scripts/browser-defense.js
 npx --yes --package @playwright/cli playwright-cli -s=zombie run-code --filename scripts/browser-environment.js
 npx --yes --package @playwright/cli playwright-cli -s=zombie run-code --filename scripts/browser-night-survival.js
@@ -192,7 +206,7 @@ Eine ausschließlich im Entwicklungsbuild verfügbare QA-Schnittstelle erlaubt P
 
 Der Performancevergleich misst RAF-Bildabstände in Millisekunden im selben 1920×1080-Fenster in Wald, Stadt, Wohnung und Nachtansicht. Jede Ansicht läuft vor der Messung fünf Sekunden, damit Texturuploads und adaptive Auflösung sich einpendeln. Er liefert Median, p95, Rendererprofil, Renderaufrufe, Dreiecke und die tatsächlich verwendete interne Auflösung. Diese Bildabstände enthalten die Bildschirmtaktung und sind keine isolierten GPU-Zeiten. Pixelprüfungen laufen außerhalb des Timingfensters. Der Stabilitätstest prüft Raumwechsel ohne zusätzliche Shaderprogramme, Größenänderungen, 30 reale Gegner, Speicherfreigabe beim Neustart und einen absichtlich ausgelösten WebGL-Kontextverlust. Hardware, Browser, Fenstergröße, Einlaufzeit und Hintergrundlast müssen bei Vergleichen gleich sein.
 
-Statische Stadtteile sind nach Material zusammengefasst und werden nach Entfernung ausgeblendet. Die Region benutzt 100-Meter-Abschnitte: Architektur bis etwa 235 Meter, bodennahe Vegetation bis 130 Meter, Bäume bis 220 Meter, Landmarken bis 650 Meter und Gelände bis hinter die Sichtweite von 1.000 Metern. Baumvarianten teilen sich Geometrie und Materialien; die regionale Nahstufe benutzt die vorbereiteten mittleren Zweigkronen, damit dichte Bestände bezahlbar bleiben. Kollision und Wegsuche fragen einen räumlichen Index ab und bleiben auch außerhalb der sichtbaren Abschnitte wirksam. Bis zu vierzig lebende Gegner sind zugelassen; entfernte KI pausiert und wird außerhalb von 110 Metern entfernt. Es gibt kein Festplatten-Streaming: Die deterministische Region wird beim Laden einmal aufgebaut, entfernte Abschnitte werden ausgeblendet.
+Statische Stadtteile sind nach Material zusammengefasst und werden nach Entfernung ausgeblendet. Die Region benutzt 100-Meter-Abschnitte: Architektur bis etwa 235 Meter, bodennahe Vegetation bis 130 Meter, Bäume bis 380 Meter, Landmarken bis 650 Meter und Gelände bis hinter die Sichtweite von 1.000 Metern. Vereinfachte regionale Kronen teilen Geometrie und Materialien in drei Detailstufen; Naturdetails verwenden 80-Meter-Zellen. Kollision und Wegsuche fragen einen räumlichen Index ab und bleiben auch außerhalb der sichtbaren Abschnitte wirksam. Bis zu vierzig lebende Gegner sind zugelassen; entfernte KI pausiert und wird außerhalb von 110 Metern entfernt. Es gibt kein Festplatten-Streaming: Die deterministische Region wird beim Laden einmal aufgebaut, entfernte Abschnitte werden ausgeblendet.
 
 Überlagerte Hügelrücken, Wellen und breite Bachmulden gliedern das Gelände. Gebäude, Dorfhöfe und Safehouses stehen auf ebenen Terrassen. Straßen und Ackerstreifen folgen den Hängen; außerhalb der ursprünglichen Enklave benutzen Figuren und Objektfüße die tatsächlich gerenderten Geländedreiecke. Felsen, Buschgruppen, Farne und Grasbüschel werden nach Wald-/Wiesenlage verteilt und erst nach den übrigen Objekten platziert. Standflächen, Neigung, Wasser, Wege, Eingänge, Vorräte und bestehende Objekte werden dabei geprüft. Felsen besitzen Kollision, niedriges Grün bleibt begehbar; Naturdetails teilen sich Geometrie und werden lokal ausgeblendet. `check:nature` prüft auch die transformierten Modellpunkte gegen den sichtbaren Boden; `browser-nature.js` zeigt vier Landschaften und testet echte Bewegung über Hügel.
 
