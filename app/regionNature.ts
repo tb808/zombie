@@ -2,10 +2,11 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { instancedTreeParts } from './naturalAssets.ts';
 import { surfaceMaterial } from './surfaces.ts';
-import { REGION_BOUNDS, REGION_LOOT, REGION_POIS, REGION_SIGNS, STRUCTURES, TREES, PARKED_CARS, SpatialIndex, fieldAt, forestDensity, inLegacy, overlaps, roadClearance, seeded, waterClearance, zoneAt } from './regionPlan.ts';
+import { REGION_BOUNDS, REGION_LOOT, REGION_POIS, REGION_SIGNS, SITE_FIXTURES, STRUCTURES, TREES, PARKED_CARS, SpatialIndex, fieldAt, forestDensity, inLegacy, overlaps, seeded, waterClearance, zoneAt } from './regionPlan.ts';
 import { terrainHeight } from './regionTerrain.ts';
 import { SITE_RESERVATIONS } from './shelterSites.ts';
 import type { Obstacle, Point } from './survival.ts';
+import { pedestrianClearance } from './streetPlan.ts';
 
 export type NatureKind='rock'|'shrub'|'fern'|'grass';
 export type NaturePlacement=Obstacle & {kind:NatureKind;y:number;radius:number;height:number;rotation:number;normal:readonly [number,number,number];variant:number};
@@ -23,7 +24,7 @@ export function planRegionNature(extraFootprints:readonly Obstacle[]=[],extraRes
   const fixed:Obstacle[]=[...STRUCTURES.map(b=>({...b,hx:b.hx+7,hz:b.hz+7})),
     ...SITE_RESERVATIONS.map(s=>({...s,hx:s.hx+5,hz:s.hz+5})),
     ...TREES.map(t=>({...t,hx:1.8,hz:1.8})),...PARKED_CARS.map(p=>({...p,hx:4,hz:4})),
-    ...REGION_SIGNS.map(p=>({...p,hx:3,hz:3})),...REGION_POIS.map(p=>({...p,hx:65,hz:65})),...extraFootprints];
+    ...REGION_SIGNS.map(p=>({...p,hx:3,hz:3})),...REGION_POIS.map(p=>({...p,hx:65,hz:65})),...SITE_FIXTURES,...extraFootprints];
   fixed.forEach(o=>occupied.add(o));
   const reserved=[...REGION_LOOT,...extraReserved];let serial=1;
   for(let z=REGION_BOUNDS.minZ+12;z<REGION_BOUNDS.maxZ-12;z+=12)for(let x=REGION_BOUNDS.minX+12;x<REGION_BOUNDS.maxX-12;x+=12,serial++){
@@ -42,7 +43,7 @@ export function planRegionNature(extraFootprints:readonly Obstacle[]=[],extraRes
       const height=kind==='rock'?radius*(.6+seeded(seed*113)*.55):kind==='shrub'?.8+seeded(seed*127)*.85:kind==='fern'?.45+seeded(seed*131)*.4:.3+seeded(seed*131)*.4;
       // Include the crown's downhill shift when the whole plant follows a slope.
       const extent=radius+height*.46,footprint={x:wx,z:wz,hx:extent,hz:extent};
-      if(inLegacy(wx,wz,4)||waterClearance(wx,wz)<radius+3||roadClearance(wx,wz)<radius+3
+      if(inLegacy(wx,wz,4)||waterClearance(wx,wz)<radius+3||pedestrianClearance(wx,wz)<radius+3
         ||occupied.query(wx,wz,extent+.6).some(o=>overlaps(footprint,o,.6))
         ||reserved.some(p=>Math.hypot(p.x-wx,p.z-wz)<extent+3))continue;
       const support=natureSupport(wx,wz,radius);
@@ -54,7 +55,7 @@ export function planRegionNature(extraFootprints:readonly Obstacle[]=[],extraRes
   // Larger local outcrops break up open hills without filling cultivated fields.
   for(const [cx,cz]of [[-1025,500],[-880,-570],[-210,570],[140,-650],[1025,-550],[1020,100],[-480,410]])for(let i=0;i<18;i++){
     const seed=91001+serial++,angle=i*2.399,r=Math.sqrt(i)*4,x=cx+Math.cos(angle)*r,z=cz+Math.sin(angle)*r,radius=1.8+seeded(seed*13)*2.5,height=radius*(.7+seeded(seed*17)*.4),extent=radius+height*.46,footprint={x,z,hx:extent,hz:extent};
-    if(inLegacy(x,z,8)||roadClearance(x,z)<extent+3||waterClearance(x,z)<extent+3||fieldAt(x,z)||zoneAt(x,z)?.biome==='city'||occupied.query(x,z,extent+.6).some(o=>overlaps(footprint,o,.6))||reserved.some(p=>Math.hypot(p.x-x,p.z-z)<extent+3))continue;
+    if(inLegacy(x,z,8)||pedestrianClearance(x,z)<extent+3||waterClearance(x,z)<extent+3||fieldAt(x,z)||zoneAt(x,z)?.biome==='city'||occupied.query(x,z,extent+.6).some(o=>overlaps(footprint,o,.6))||reserved.some(p=>Math.hypot(p.x-x,p.z-z)<extent+3))continue;
     const support=natureSupport(x,z,radius);if(support.slope>.46||support.error>.09)continue;
     const p:NaturePlacement={...footprint,kind:'rock',radius,height,y:support.y,normal:support.normal,rotation:angle,variant:seed%3};out.push(p);occupied.add(p);
   }

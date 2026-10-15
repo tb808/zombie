@@ -36,7 +36,7 @@ export const REGION_ROUTES: Route[] = [
   route('north', 'Nordzubringer', 'main', [[370,-220],[390,-430],[490,-530],[650,-650]]),
   route('fort', 'Militärstraße', 'main', [[390,-430],[100,-480],[-120,-590],[-400,-720],[-400,-820]]),
   route('korn-fort', 'Hochforststraße', 'secondary', [[-650,-530],[-600,-650],[-400,-720]]),
-  route('southwest', 'Alte Forststraße', 'secondary', [[-113,135],[-240,260],[-470,300],[-630,390],[-740,500]]),
+  route('southwest', 'Alte Forststraße', 'secondary', [[-92,145],[-240,260],[-470,300],[-630,390],[-740,500]]),
   route('village-link', 'Westliche Landstraße', 'secondary', [[-650,-530],[-860,-340],[-920,-80],[-850,180],[-740,500]]),
   route('south', 'Talstraße', 'main', [[370,220],[320,340],[480,480],[690,420]]),
   route('east', 'Steinbruchstraße', 'main', [[650,104],[840,130],[1040,160]]),
@@ -67,7 +67,7 @@ export function sampleLine(points: Point[], spacing = 10): Point[] {
     const a = points[Math.max(0,i-1)], b = points[i], c = points[i+1], d = points[Math.min(points.length-1,i+2)];
     const steps = Math.ceil(Math.hypot(c.x-b.x,c.z-b.z)/spacing);
     for (let n = 0; n < steps; n++) { const t = n/steps, t2=t*t,t3=t2*t;
-      const axis = (k: 'x' | 'z') => .5*((2*b[k])+(-a[k]+c[k])*t+(2*a[k]-5*b[k]+4*c[k]-d[k])*t2+(-a[k]+3*b[k]-3*c[k]+d[k])*t3);
+      const axis = (k: 'x' | 'z') => b[k]===c[k]?b[k]:.5*((2*b[k])+(-a[k]+c[k])*t+(2*a[k]-5*b[k]+4*c[k]-d[k])*t2+(-a[k]+3*b[k]-3*c[k]+d[k])*t3);
       out.push({x:axis('x'),z:axis('z')});
     }
   }
@@ -118,7 +118,7 @@ function intersections() {
     const x=road.a.x+t*rx,z=road.a.z+t*rz;
     if(bridges.some(b=>Math.hypot(x-b.x,z-b.z)<25))continue;
     const sine=Math.abs(den)/(Math.hypot(rx,rz)*Math.hypot(sx,sz));
-    bridges.push({id:`${road.id}-${water.id}`,x,z,rotation:Math.atan2(rx,rz),length:water.width/Math.max(.25,sine)+24,width:road.width,level:2.8});
+    bridges.push({id:`${road.id}-${water.id}`,x,z,rotation:Math.atan2(rx,rz),length:water.width/Math.max(.25,sine)+24,width:road.width+2.4,level:2.8});
   }
   return bridges;
 }
@@ -221,8 +221,33 @@ export const REGION_LOOT:{kind:LootKind;x:number;z:number;count:number}[]=[
   ...STRUCTURES.filter(s=>s.enterable&&!s.id.startsWith('mission-building-')).map((s,i)=>({kind:(s.zone==='MILITARY_BASE'?'rifleAmmo':s.zone==='research'?'medkit':s.zone==='MAIN_CITY'?['ammo','medkit','water','scrap'][i%4]:'ration') as LootKind,x:s.x,z:s.z,count:s.zone==='MILITARY_BASE'?30:s.zone==='MAIN_CITY'&&i%4===0?24:2})),
 ];
 
+// Footprints of the fixed assemblies in regionWorld. Roofs reserve placement
+// space; only their feet/pumps obstruct movement underneath a filling canopy.
+export const SITE_FIXTURES:(Obstacle & {solid:boolean})[]=[
+  ...REGION_POIS.flatMap(p=>{
+    if(p.kind==='gas'||p.kind==='rest')return [
+      {x:p.x,z:p.z-12,hx:11,hz:6,solid:false},
+      ...[-9,9].map(dx=>({x:p.x+dx,z:p.z-12,hx:.15,hz:.15,solid:true})),
+      ...[-5,5].map(dx=>({x:p.x+dx,z:p.z-12,hx:.4,hz:.3,solid:true})),
+    ];
+    if(p.kind==='farm')return [-20,-6].map(dx=>({x:p.x+dx,z:p.z-24,hx:2.6,hz:2.6,solid:true}));
+    if(p.kind==='power')return Array.from({length:4},(_,i)=>({x:p.x-15+i*9,z:p.z-30,hx:2,hz:2.5,solid:true}));
+    if(p.kind==='camp')return [-12,12].map(dx=>({x:p.x+dx,z:p.z+8,hx:1,hz:1.25,solid:true}));
+    if(p.kind==='radar')return [{x:p.x+10,z:p.z+5,hx:.7,hz:.7,solid:true}];
+    if(p.kind==='quarry')return Array.from({length:4},(_,i)=>({x:p.x+90+i*8,z:p.z-15,hx:15,hz:(65-i*8)/2,solid:true}));
+    return [];
+  }),
+  ...[550,620].map(x=>({x,z:-365,hx:1.9,hz:1.9,solid:true})),
+  {x:-793,z:585,hx:8,hz:4,solid:true},
+  ...[-618,-610].map(x=>({x,z:-490,hx:2.2,hz:2.2,solid:true})),
+  ...[-503,-297].flatMap(x=>[-898,-742].map(z=>({x,z,hx:2.5,hz:2.5,solid:true}))),
+  ...Array.from({length:10},(_,i)=>({x:-492+i*12,z:-878,hx:4,hz:1.5,solid:true})),
+  {x:-420,z:-815,hx:.4,hz:.4,solid:true},
+  ...[-410,-390].map(x=>({x,z:-738,hx:1.5,hz:1.5,solid:true})),
+];
+
 export type TreePlacement=Point&{species:'pine'|'broadleaf';variant:number;scale:number;rotation:number};
-export function planTrees(){const trees:TreePlacement[]=[],trunks=new SpatialIndex<Obstacle>(16);const occupied=new SpatialIndex<Obstacle>();for(const s of STRUCTURES)occupied.add(s);let n=1;
+export function planTrees(){const trees:TreePlacement[]=[],trunks=new SpatialIndex<Obstacle>(16);const occupied=new SpatialIndex<Obstacle>();for(const s of [...STRUCTURES,...SITE_FIXTURES])occupied.add(s);let n=1;
   // Close stands alternate with open glades. Crowns may overlap, while trunks,
   // routes, cultivated fields and developed parcels retain walking space.
   for(let z=REGION_BOUNDS.minZ+10;z<REGION_BOUNDS.maxZ-10;z+=8.5)for(let x=REGION_BOUNDS.minX+10;x<REGION_BOUNDS.maxX-10;x+=8.5,n++){

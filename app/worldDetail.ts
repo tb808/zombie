@@ -5,6 +5,7 @@ import type { Obstacle } from './survival.ts';
 import { LEGACY_BOUNDS as WORLD } from './regionPlan.ts';
 import { detailedAsset } from './naturalAssets.ts';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+import { footprintStreetClearance, pedestrianClearance } from './streetPlan.ts';
 
 type Road = { x: number; z: number; w: number; h: number; rotation?: number };
 type Point = { x: number; z: number };
@@ -16,12 +17,13 @@ export function roadDistance(x: number, z: number, road: Road) {
 export function detailAllowed(x: number, z: number, obstacles: readonly Obstacle[], reserved: readonly Point[], roads: readonly Road[], margin = .65) {
   return !obstacles.some(o => Math.abs(x - o.x) < o.hx + margin && Math.abs(z - o.z) < o.hz + margin)
     && !reserved.some(p => Math.hypot(x - p.x, z - p.z) < 1.65)
-    && !roads.some(r => roadDistance(x, z, r) < .65);
+    && !roads.some(r => roadDistance(x, z, r) < .65)
+    && pedestrianClearance(x,z)>margin;
 }
 
 export function buildWorldDetail(scene: THREE.Scene, height: (x: number, z: number) => number, obstacles: readonly Obstacle[], reserved: readonly Point[], roads: readonly Road[], collision?:Obstacle[]) {
   const chunks = new Map<string, { group: THREE.Group; x: number; z: number; geometry: Map<THREE.Material, THREE.BufferGeometry[]> }>();
-  const groundConcrete = surfaceMaterial('concrete', 0xd4d0c3), stone = surfaceMaterial('stone', 0xb8b1a0);
+  const stone = surfaceMaterial('stone', 0xb8b1a0);
   const metal = surfaceMaterial('metal', 0x939994, { metalness: .55 });
   const paint = surfaceMaterial('concrete', 0xd8d4bd);
   const benchWood=surfaceMaterial('wood',0xa59778),binPaint=surfaceMaterial('metal',0x728679,{metalness:.45});
@@ -75,26 +77,15 @@ export function buildWorldDetail(scene: THREE.Scene, height: (x: number, z: numb
     }
     if (sample % 31 === 0) add(new THREE.SphereGeometry(.13 + random(sample) * .2, 12, 8).scale(1, .4, 1.2), stone, wx + .45, height(wx + .45, wz) + .03, wz);
   }
-  // Sidewalk slabs and flush drainage along the city road grid. They are low
-  // dressing, without adding barriers to doors, guarded access or mission paths.
-  for (const road of roads.filter(r => r.x >= 84 && !r.rotation)) {
-    const vertical = road.h > road.w, length = vertical ? road.h : road.w, halfWidth = (vertical ? road.w : road.h) / 2;
-    for (let t = -length / 2 + 1.5; t < length / 2; t += 3) for (const side of [-1, 1]) {
-      const x = road.x + (vertical ? side * (halfWidth + 1.1) : t), z = road.z + (vertical ? t : side * (halfWidth + 1.1));
-      if (roads.some(r => r !== road && roadDistance(x, z, r) < .5) || obstacles.some(o => Math.abs(x - o.x) < o.hx + 1 && Math.abs(z - o.z) < o.hz + 1)) continue;
-      add(new THREE.BoxGeometry(vertical ? 2.1 : 2.94, .075, vertical ? 2.94 : 2.1), groundConcrete, x, height(x, z) + .07, z); roadPieces++;
-      const cx = road.x + (vertical ? side * (halfWidth + .1) : t), cz = road.z + (vertical ? t : side * (halfWidth + .1));
-      add(new THREE.BoxGeometry(vertical ? .18 : 2.98, .12, vertical ? 2.98 : .18), groundConcrete, cx, height(cx, cz) + .07, cz);
-    }
-  }
+  // Pavements and kerbs are built once by the shared street network.
   for (const x of [92, 151, 212]) for (const z of [-104, -46, 4, 54, 104]) {
-    for (let i = -3; i <= 3; i++) add(new THREE.BoxGeometry(.48, .009, 3.7), paint, x + i * .8, height(x, z + 7) + .076, z + 7);
+    for (let i = -3; i <= 3; i++) {add(new THREE.BoxGeometry(.48, .009, 3.7), paint, x + i * .8, height(x, z + 8.5) + .076, z + 8.5);roadPieces++;}
     add(new THREE.CylinderGeometry(.54, .54, .016, 32), metal, x + 2, height(x + 2, z - 8) + .076, z - 8);
     for (let i = 0; i < 6; i++) add(new THREE.BoxGeometry(.68, .008, .02), metal, x + 2, height(x + 2, z - 8) + .088, z - 8.23 + i * .09);
   }
   for(const x of [92,151,212])for(let i=0;i<7;i++)for(const side of [-1,1]){
-    const wx=x+side*7.15,wz=-121+i*37,ground=height(wx,wz);
-    if(!detailAllowed(wx,wz,obstacles,reserved,roads,1.5))continue;
+    const wx=x+side*9.5,wz=-121+i*37,ground=height(wx,wz);
+    if(!detailAllowed(wx,wz,obstacles,reserved,roads,1)||footprintStreetClearance({x:wx,z:wz,hx:.38,hz:.9},true)<.4)continue;
     if(i%3===0){
       for(let slat=0;slat<5;slat++){
         add(new RoundedBoxGeometry(.095,.07,1.7,2,.01),benchWood,wx-.22+slat*.11,ground+.46,wz);

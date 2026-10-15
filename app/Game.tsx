@@ -16,7 +16,7 @@ import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.j
 import { ITEMS, LOOT, NOTES, REGIONS, newInventory, segmentBlocked, type ItemKind, type LootKind, lootName } from './world';
 import { WORLD, ZOMBIES, WEAPONS, freshArsenal, makeBrain, think, transition, findPath, type ZombieKind, type Brain, type Point, type Stimulus, type WeaponKind } from './survival';
 import { ZombieAnimator } from './zombieAnimation';
-import { CITY_PLACES, CITY_ROADS, CITY_LOOT, CITY_NPCS, DISCOVERIES, buildCity } from './city';
+import { CITY_PLACES, CITY_LOOT, CITY_NPCS, DISCOVERIES, buildCity } from './city';
 import WorldMap, { type MapNpc } from './WorldMap';
 import InventoryPanel, { ItemIcon } from './InventoryPanel';
 import { inventoryItemColor, inventoryItemName, isWeaponItem, moveInventoryItem, newInventoryLayout, syncInventoryLayout, type InventoryItem, type InventoryLayout, type InventorySlot } from './inventory';
@@ -24,7 +24,7 @@ import { MARA_INTRO, subtitleLines, type Dialogue } from './dialogue';
 import { assetPath } from './assetPath';
 import { daylightAt, REFUGES, refugeAt, refugeWalls, footprintsOverlap } from './environment';
 import { CAMPAIGN, CHAPTERS, STORY_GOAL, storyGoal, missionIndex, type CampaignId } from './campaign';
-import { SAVE_KEY, lootKey, parseSave, pickProgress, type GameSave, type SavedConversation } from './saveGame';
+import { SAVE_KEY, lootKey, parseSave, pickProgress, recoverSavedPosition, type GameSave, type SavedConversation } from './saveGame';
 import { SAFEHOUSES, HOUSE_LOOT, newHouses, houseReady, houseProtected, houseContains, canSleep, nextHour } from './safehouses';
 import { detailMaterial, surfaceMaterial, releaseSurfaceTextures } from './surfaces';
 import { detailedAsset, foliageTime, createTreeDetailController } from './naturalAssets';
@@ -35,6 +35,9 @@ import { buildRegionNature, planRegionNature } from './regionNature';
 import { buildShoreline, planShoreline } from './shoreline';
 import { buildWildlife, planWildlife } from './wildlife';
 import { REGION_LOOT, REGION_POIS, REGION_SIGNS, ROAD_LINES, BRIDGES, STRUCTURES, WORLD_ZONES, inLegacy, riskAt, zoneAt } from './regionPlan';
+import { ORIGINAL_ROADS, footprintStreetClearance } from './streetPlan';
+import { LEGACY_BUILDINGS } from './legacyLayout';
+import { groundSurfaceTriangles } from './groundSurface';
 import { terrainHeight } from './regionTerrain';
 import { buildSettlementDetail } from './settlementDetail';
 import { nightThreat, roamingZombie, uvScheduled, uvProtectedAt } from './nightSurvival';
@@ -307,7 +310,8 @@ export default function Game() {
       });
       return object;
     };
-    const placements: { anchor: THREE.Group; required: boolean; ready: Promise<void> }[] = [];
+    const placements: { name:string; anchor: THREE.Group; required: boolean; ready: Promise<void> }[] = [];
+    const layoutObjects:{name:string;x:number;z:number;hx:number;hz:number;required:boolean;streetClearance:number;minY:number;groundY:number}[]=[];
     let worldDetail:ReturnType<typeof buildWorldDetail>|undefined;
     let settlementDetail:Awaited<ReturnType<typeof buildSettlementDetail>>;
     let regionNature:ReturnType<typeof buildRegionNature>|undefined;
@@ -329,7 +333,7 @@ export default function Game() {
         const finalBounds = new THREE.Box3().setFromObject(model); model.position.y -= finalBounds.min.y;
         anchor.add(model);
       }).catch(() => reportAssetError(name));
-      placements.push({ anchor, required, ready });
+      placements.push({ name, anchor, required, ready });
       return anchor;
     };
 
@@ -350,32 +354,18 @@ export default function Game() {
     };
     const roadMaterial = surfaceMaterial('asphalt',0xb2b3af,{roughness:.9});
     const road = (x: number, z: number, w: number, h: number, rotation = 0) => {
-      const xSegments = Math.max(2, Math.ceil(w / 3)), zSegments = Math.max(2, Math.ceil(h / 3));
-      const vertices: number[] = [], indices: number[] = [], uvs: number[] = [];
-      for (let iz = 0; iz <= zSegments; iz += 1) for (let ix = 0; ix <= xSegments; ix += 1) {
-        const localX = (ix / xSegments - 0.5) * w, localZ = (iz / zSegments - 0.5) * h;
-        const worldX = x + localX * Math.cos(rotation) - localZ * Math.sin(rotation);
-        const worldZ = z + localX * Math.sin(rotation) + localZ * Math.cos(rotation);
-        vertices.push(worldX, terrainHeight(worldX, worldZ) + 0.055, worldZ); uvs.push(ix / xSegments, iz / zSegments);
-      }
-      for (let iz = 0; iz < zSegments; iz += 1) for (let ix = 0; ix < xSegments; ix += 1) {
-        const a = iz * (xSegments + 1) + ix, b = a + 1, c = a + xSegments + 1, d = c + 1; indices.push(a, c, b, b, c, d);
-      }
-      const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3)); geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2)); geometry.setIndex(indices); geometry.computeVertexNormals();
+      const points=[[-w/2,-h/2],[w/2,-h/2],[w/2,h/2],[-w/2,h/2]].map(([dx,dz])=>({x:x+dx*Math.cos(rotation)-dz*Math.sin(rotation),z:z+dx*Math.sin(rotation)+dz*Math.cos(rotation)})),vertices=groundSurfaceTriangles(points,.07);
+      const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3)); geometry.setAttribute('uv',new THREE.BufferAttribute(new Float32Array(vertices.length/3*2),2));geometry.computeVertexNormals();
       const mesh = new THREE.Mesh(geometry, roadMaterial); mesh.receiveShadow = true; scene.add(mesh);
     };
-    CITY_ROADS.forEach(r=>road(r.x,r.z,r.w,r.h));
-    road(0, -7, 145, 9, 0.05);
-    road(18, 10, 8, 48, -0.55);
-    road(53, 0, 8, 58, 0.42);
+    ORIGINAL_ROADS.forEach(r=>road(r.x,r.z,r.w,r.h,'rotation' in r?r.rotation:0));
     const roadMarks = new THREE.InstancedMesh(new THREE.BoxGeometry(.13,.018,2.1),new THREE.MeshStandardMaterial({color:0xa29f7a,roughness:1}),135);
     const markTransform=new THREE.Object3D();let markIndex=0;
-    for(const x of [92,151,212])for(let z=-144;z<121;z+=6){markTransform.position.set(x,terrainHeight(x,z)+.075,z);markTransform.updateMatrix();roadMarks.setMatrixAt(markIndex++,markTransform.matrix);}
+    for(const x of [92,151,212])for(let z=-144;z<121;z+=6){if([-104,-46,4,54,104].some(cross=>Math.abs(z-cross)<13))continue;markTransform.position.set(x,terrainHeight(x,z)+.075,z);markTransform.updateMatrix();roadMarks.setMatrixAt(markIndex++,markTransform.matrix);}
     roadMarks.count=markIndex;scene.add(roadMarks);
 
+    LEGACY_BUILDINGS.forEach(b=>building(b.name,b.x,b.z,b.scale,b.rotation,b.hx,b.hz));
     // Ranger station
-    building('suburban-building-type-a', -58, -28, 1.65, Math.PI, 4.8, 4.2);
-    building('suburban-building-type-h', -72, -26, 1.15, Math.PI / 2, 3.8, 3.2);
     place('tent', -60, -40, 1.45, 0.5); place('campfire-pit', -54, -35, 1.2);
     place('tent',START_POINTS.player.x-3,START_POINTS.player.z-6,1.45,.5);
     place('campfire-pit',START_POINTS.mara.x-2,START_POINTS.mara.z+1,1.2);
@@ -383,21 +373,13 @@ export default function Game() {
     for (let i = 0; i < 8; i += 1) place(i % 2 ? 'pine' : 'pine-crooked', -78 + i * 4.8, -49 - (i % 3) * 2, 1.05 + (i % 2) * 0.15, i);
 
     // Village homes flank a clear street and open courtyards.
-    const villageBuildings = [
-      ['suburban-building-type-c', -37, -17, 1.55, 0], ['suburban-building-type-f', -25, -18, 1.7, 0],
-      ['suburban-building-type-k', -11, -17, 1.65, 0], ['suburban-building-type-n', -35, 7, 1.7, Math.PI],
-      ['suburban-building-type-r', -22, 8, 1.75, Math.PI], ['suburban-building-type-t', -8, 8, 1.55, Math.PI],
-    ] as const;
-    villageBuildings.forEach(([name, x, z, scale, rot]) => building(name, x, z, scale, rot, 4.5, 4));
     for (let x = -41; x <= -4; x += 5.2) {
       place('suburban-fence-low', x, 13, 1.3, Math.PI / 2);
       if (x % 10 > -5) place('suburban-planter', x, -11, 1.1, x);
     }
-    [-42, -31, -16, -3].forEach((x, i) => place('lightpost-single', x, i % 2 ? -11 : 3, 1.35, i));
     [['barrel', -28, -5], ['box', -24, -5], ['box-open', -20, -5], ['barrel', -5, 2], ['signpost', -43, -5]].forEach(([n, x, z], i) => place(n as string, x as number, z as number, 1.1, i));
 
     // Cemetery
-    building('crypt-large', 20, 24, 1.65, Math.PI, 5.2, 4.2);
     for (let row = 0; row < 3; row += 1) for (let col = 0; col < 4; col += 1) {
       const graves = ['gravestone-bevel', 'gravestone-round', 'gravestone-cross', 'gravestone-broken'];
       place(graves[(row + col) % graves.length], 5 + col * 4.2 + (row % 2), 8 + row * 4.1, 1 + (col % 2) * 0.1, (col - row) * 0.15);
@@ -407,17 +389,11 @@ export default function Game() {
     place('fire-basket', 14, 18, 1.2); place('fire-basket', 21, 18, 1.2);
 
     // Clinic and industrial quarantine zone
-    building('industrial-building-a', 44, 29, 1.8, Math.PI, 5.5, 4.5);
-    building('industrial-building-f', 57, 28, 1.85, Math.PI, 5, 4.5);
-    building('industrial-building-c', 50, 6, 1.75, 0, 5.3, 4.4);
-    building('industrial-building-j', 71, 5, 1.7, 0, 4.4, 3.8);
-    building('industrial-building-m', 74, 27, 1.65, Math.PI / 2, 4, 4.8);
     place('industrial-chimney-large', 60, 34, 2.2); place('industrial-detail-tank', 38, 20, 1.9, 0.4);
     for (let i = 0; i < 9; i += 1) place(i % 3 ? 'barrel' : 'box', 37 + i * 4.5, 7 + (i % 2) * 3, 1.05, i);
     [-1, 1].forEach((side) => { for (let i = 0; i < 7; i += 1) place('brick-wall', 37 + i * 6, side > 0 ? 36 : 5, 1.15, Math.PI / 2); });
 
     // Radio tower / evacuation site
-    building('industrial-building-r', 70, -35, 1.7, Math.PI, 4.8, 4.2);
     const tower = new THREE.Group(); tower.position.set(66, terrainHeight(66, -25), -25); scene.add(tower);
     const steel = new THREE.MeshStandardMaterial({ color: 0x7f8983, metalness: 0.55, roughness: 0.45 });
     for (let i = 0; i < 4; i += 1) {
@@ -450,6 +426,12 @@ export default function Game() {
     // Diegetic signage: readable paint, abandoned belongings and paper at each story stop.
     const regionalSigns: {group:THREE.Group;x:number;z:number}[]=[];
     const paintedBoard = (text: string, x: number, z: number, color = '#e2d7b4', graffiti = false) => {
+      if(footprintStreetClearance({x,z,hx:1.9,hz:.2},true)<.3){
+        const origin={x,z};
+        for(let i=0;i<160;i++){const angle=i*2.399,r=3+Math.sqrt(i)*1.3,px=origin.x+Math.cos(angle)*r,pz=origin.z+Math.sin(angle)*r,footprint={x:px,z:pz,hx:1.9,hz:.2};
+          if(footprintStreetClearance(footprint,true)>.3&&!obstacles.some(o=>footprintsOverlap(footprint,o))){x=px;z=pz;break;}
+        }
+      }
       const group=new THREE.Group();scene.add(group);
       if(!inLegacy(x,z))regionalSigns.push({group,x,z});
       const surface = document.createElement('canvas'); surface.width = 1024; surface.height = 384;
@@ -470,15 +452,8 @@ export default function Game() {
     for(const p of REGION_SIGNS)paintedBoard(`${p.name} / GEFAHR ${p.risk+1} · VORRÄTE IM HOF`,p.x,p.z,p.risk>=2?'#edba83':'#d5dfb2');
     const interiorLight = new THREE.PointLight(0xb1c8ad,18,24,2); scene.add(interiorLight);
     const rearInteriorLight = new THREE.PointLight(0xffddb0,0,15,2); scene.add(rearInteriorLight);
-    // Lamps stay attached to their poles rather than following the player.
+    // All street poles, including the old city, use the shared settlement plan.
     const streetLights: THREE.PointLight[] = [];
-    for (const x of [92,151,212]) for (const z of [-104,-46,4,54,104]) {
-      const pole = new THREE.Mesh(new THREE.CylinderGeometry(.07,.1,5,20),surfaceMaterial('metal',0x727d78,{metalness:.6}));
-      pole.position.set(x+5.5,terrainHeight(x+5.5,z)+2.5,z); scene.add(pole);
-      const arm=new THREE.Mesh(new THREE.CylinderGeometry(.045,.045,1.1,16),pole.material);arm.rotation.z=Math.PI/2;arm.position.set(pole.position.x-.5,pole.position.y+2.3,z);scene.add(arm);
-      const head=new THREE.Mesh(new RoundedBoxGeometry(.65,.13,.3,3,.045),pole.material);head.position.set(pole.position.x-1,pole.position.y+2.27,z);scene.add(head);
-      const lamp = new THREE.PointLight(0xffdc9d,0,22,2); lamp.position.set(pole.position.x,pole.position.y+2.3,z); scene.add(lamp); streetLights.push(lamp);
-    }
     const refugeLights: THREE.PointLight[] = [];
     const wirePixels=new Uint8Array(64*64*4);
     for(let y=0;y<64;y++)for(let x=0;x<64;x++){const at=(y*64+x)*4,line=(x+y)%32<2||((x-y)%32+32)%32<2;wirePixels[at]=wirePixels[at+1]=wirePixels[at+2]=160;wirePixels[at+3]=line?255:0;}
@@ -1209,6 +1184,9 @@ export default function Game() {
         npcAnchors.noah.visible=runtime.learned.includes('oldMarket')||runtime.learned.includes('noah')||runtime.stage>=missionIndex('flare');
         for(const h of SAFEHOUSES){const state=runtime.houses[h.id];state.windows.forEach((closed,i)=>city.setFortification(h.id,'window',i,closed));state.closed.forEach((closed,i)=>city.setFortification(h.id,'door',i,closed));city.setFortification(h.id,'bed',0,state.bed);}
         saved.doors.forEach(id=>city.openDoor(id));saved.gates.forEach(id=>safehouseEntrances.setGate(id,true));
+        const playerPosition=recoverSavedPosition(saved.player,collides)??START,noahPosition=recoverSavedPosition(saved.noah,collides)??playerPosition;
+        camera.position.set(playerPosition.x,terrainHeight(playerPosition.x,playerPosition.z)+1.72,playerPosition.z);
+        npcAnchors.noah.position.set(noahPosition.x,terrainHeight(noahPosition.x,noahPosition.z),noahPosition.z);
         const remaining=new Map(saved.loot.map(p=>[p.key,p.remaining]));
         pickups.forEach((p,i)=>{p.count=remaining.get(saveManifest.loot[i].key)!;p.taken=p.count===0;p.object.visible=!p.taken;});
         fuelCell.visible=!runtime.learned.includes('fuel');serum.visible=!runtime.learned.includes('serum');
@@ -1264,7 +1242,7 @@ export default function Game() {
       environment: () => ({ ...daylightAt(runtime.elapsed), threat:nightThreat(runtime.elapsed), uvProtected:protectedAt(camera.position.x,camera.position.z)?.id, gates:safehouseEntrances.gates.map(g=>({id:g.id,x:g.x,z:g.z,open:g.open,uv:g.uv,lamps:g.tubes.some(t=>t.visible)})), refuge:refugeAt(camera.position.x,camera.position.z)?.id, sun:daylightAt(runtime.elapsed).sunIntensity, moon:daylightAt(runtime.elapsed).moonIntensity, fog:scene.fog instanceof THREE.FogExp2?scene.fog.density:0, npcs:cityNpcs.map(n=>({id:n.id,x:n.x,z:n.z})), placements:placements.filter(p=>p.anchor.parent).length,detail:worldDetail?.stats }),
       performance: () => ({frameAverageMs:resolutionBudget.averageMs,resolutionScale:resolutionBudget.scale,pixelRatio:renderer.getPixelRatio(),buffer:[canvas.width,canvas.height],trees:treeDetail?.levels(),localLights:localLightPool.slots.length,programs:renderer.info.programs?.length,geometries:renderer.info.memory.geometries,textures:renderer.info.memory.textures,contextLosses,contextLost,frames:renderedFrames}),
       loot:()=>pickups.map(p=>({kind:p.kind,count:p.count,taken:p.taken,visible:p.object.visible,position:p.object.position.toArray(),rotation:p.object.rotation.y,batches:p.object.children.length})),
-      world: () => ({bounds:WORLD,...regionWorld.stats(),nature:regionNature?.stats(),shoreline:shoreline?.stats(),wildlife:wildlife?.stats(),wildlifePositions:wildlife?.positions(),zones:WORLD_ZONES,pois:REGION_POIS,bridges:BRIDGES,structures:STRUCTURES,roads:ROAD_LINES,risk:riskAt(camera.position.x,camera.position.z),dressing:settlementDetail?.stats(),dressingScenes:settlementDetail?.plan.scenes,dressingProps:settlementDetail?.plan.props,dressingBounds:settlementDetail?.bounds}),
+      world: () => ({bounds:WORLD,...regionWorld.stats(),nature:regionNature?.stats(),shoreline:shoreline?.stats(),wildlife:wildlife?.stats(),wildlifePositions:wildlife?.positions(),zones:WORLD_ZONES,pois:REGION_POIS,bridges:BRIDGES,structures:STRUCTURES,roads:ROAD_LINES,layoutObjects,risk:riskAt(camera.position.x,camera.position.z),dressing:settlementDetail?.stats(),dressingScenes:settlementDetail?.plan.scenes,dressingProps:settlementDetail?.plan.props,dressingBounds:settlementDetail?.bounds}),
       blocked: (x:number,z:number) => collides(x,z), height:terrainHeight,
     }});
 
@@ -1400,12 +1378,12 @@ export default function Game() {
         if (bounds.isEmpty()) continue;
         const size = bounds.getSize(new THREE.Vector3()), center = bounds.getCenter(new THREE.Vector3());
         const footprint = {x:center.x,z:center.z,hx:size.x/2,hz:size.z/2};
-        if ([...occupied,...reserved].some(o=>footprintsOverlap(footprint,o))) scene.remove(anchor);
+        if (footprintStreetClearance(footprint,true)<.35||[...occupied,...reserved].some(o=>footprintsOverlap(footprint,o))) scene.remove(anchor);
         else occupied.push(footprint);
       }
+      for(const {name,anchor,required}of placements)if(anchor.parent){anchor.updateMatrixWorld(true);const bounds=new THREE.Box3().setFromObject(anchor),size=bounds.getSize(new THREE.Vector3()),center=bounds.getCenter(new THREE.Vector3()),footprint={x:center.x,z:center.z,hx:size.x/2,hz:size.z/2};layoutObjects.push({name,...footprint,required,streetClearance:footprintStreetClearance(footprint,true),minY:bounds.min.y,groundY:terrainHeight(anchor.position.x,anchor.position.z)});}
       const detailFootprints=[...occupied,...CITY_PLACES.map(p=>({x:p.x,z:p.z,hx:p.hx??7.5,hz:p.hz??7})),...REFUGES];
-      worldDetail=buildWorldDetail(scene,terrainHeight,detailFootprints,reserved,[...CITY_ROADS,
-        {x:0,z:-7,w:145,h:9,rotation:.05},{x:18,z:10,w:8,h:48,rotation:-.55},{x:53,z:0,w:8,h:58,rotation:.42}],obstacles);
+      worldDetail=buildWorldDetail(scene,terrainHeight,detailFootprints,reserved,ORIGINAL_ROADS,obstacles);
       worldDetail.update(camera.position.x,camera.position.z);
       treeDetail=createTreeDetailController(scene);treeDetail.update(camera.position.x,camera.position.z);
       settlementDetail=await buildSettlementDetail(scene,[...detailFootprints,...obstacles],reserved,regionCollision,load,()=>disposed);

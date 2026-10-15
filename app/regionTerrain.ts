@@ -1,15 +1,22 @@
-import { STRUCTURES, PARKED_CARS, REGION_POIS, REGION_BOUNDS, WORLD_ZONES, SpatialIndex, bridgeAt, inLegacy, lineDistance, nearestOn, roadsNear, smooth, waterClearance } from './regionPlan.ts';
+import { STRUCTURES, PARKED_CARS, REGION_POIS, REGION_BOUNDS, WORLD_ZONES, SITE_FIXTURES, SpatialIndex, bridgeAt, inLegacy, lineDistance, nearestOn, roadsNear, smooth, waterClearance } from './regionPlan.ts';
 import { SITE_RESERVATIONS, START_CAMP } from './shelterSites.ts';
+import { LEGACY_FOUNDATIONS } from './legacyLayout.ts';
 
 const originalRaw = (x:number,z:number) => {
   const rolling=Math.sin(x*.055)*Math.cos(z*.07)*.7+Math.sin((x+z)*.035)*.38;
   const hill=(cx:number,cz:number,sx:number,sz:number,h:number)=>h*Math.exp(-((x-cx)**2/sx+(z-cz)**2/sz));
   return rolling+hill(-48,42,480,150,5.2)+hill(8,48,850,130,3.8)+hill(72,48,350,180,5.6)+hill(-68,-52,400,120,3.8)+hill(22,-50,650,135,4.6)+hill(86,-47,300,120,4.2);
 };
-export function originalHeight(x:number,z:number){let h=originalRaw(x,z);
+function originalLandscapeHeight(x:number,z:number){let h=originalRaw(x,z);
   for(const[cx,cz,r]of [[-60,-31,17],[-22,-4,25],[18,18,18],[55,22,23],[66,-25,17]]){const t=Math.max(0,Math.min(1,1-Math.hypot(x-cx,z-cz)/r));h+=(originalRaw(cx,cz)-h)*t*t*(3-2*t)*.92;}
   h+=(.15-h)*smooth(78,98,x);
   for(const[cx,cz]of [[-77,5],[-113,69],[-121,119]]){const t=1-smooth(8,18,Math.max(Math.abs(x-cx),Math.abs(z-cz)));h+=(originalRaw(cx,cz)-h)*t;}return h;
+}
+const legacyPads=LEGACY_FOUNDATIONS.map(b=>({...b,level:originalLandscapeHeight(b.x,b.z)}));
+export function originalHeight(x:number,z:number){
+  const h=originalLandscapeHeight(x,z);let edge=Infinity,level=h;
+  for(const b of legacyPads){const d=Math.max(Math.abs(x-b.x)-b.hx,Math.abs(z-b.z)-b.hz);if(d<edge){edge=d;level=b.level;}}
+  return h+(level-h)*(1-smooth(0,3,edge));
 }
 export function regionalRaw(x:number,z:number){
   const hill=(cx:number,cz:number,rx:number,rz:number,h:number)=>h*Math.exp(-(((x-cx)/rx)**2+((z-cz)/rz)**2));
@@ -40,17 +47,19 @@ for(const s of STRUCTURES){
   pads.add({...s,hx:s.hx+4,hz:s.hz+4,anchorX:yard?.x??s.x,anchorZ:yard?.z??s.z});
 }
 for(const p of PARKED_CARS)pads.add({...p,hx:3,hz:3.5,anchorX:p.x,anchorZ:p.z});
+for(const p of SITE_FIXTURES.filter(p=>p.hz<10&&p.hx<10)){const yard=REGION_POIS.find(q=>Math.hypot(q.x-p.x,q.z-p.z)<45);pads.add({...p,anchorX:yard?.x??p.x,anchorZ:yard?.z??p.z});}
 for(const p of REGION_POIS){
   // Entire working yards, including canopy feet/silos, share a level datum.
   const yard=p.kind==='gas'||p.kind==='rest'?{x:p.x,z:p.z-8,hx:16,hz:14}
-    :p.kind==='farm'||p.kind==='power'?{x:p.x-2,z:p.z-13,hx:23,hz:13}
+    :p.kind==='power'?{x:p.x-2,z:p.z-18,hx:23,hz:17}:p.kind==='farm'?{x:p.x-2,z:p.z-13,hx:23,hz:13}
     :p.kind==='camp'?{x:p.x,z:p.z+8,hx:16,hz:6}:null;
   if(yard)pads.add({...yard,anchorX:p.x,anchorZ:p.z});
 }
 function baseHeight(x:number,z:number){
   const distance=Math.hypot(Math.max(-180-x,0,x-240),Math.max(-185-z,0,z-160));
   if(inLegacy(x,z))return originalHeight(x,z);
-  let h=originalHeight(x,z)+(regionalRaw(x,z)-originalHeight(x,z))*smooth(0,100,distance);
+  const blend=smooth(0,100,distance);let h=regionalRaw(x,z);
+  if(blend<1){const original=originalHeight(x,z);h=original+(h-original)*blend;}
   // An urban terrace follows the old city instead of flattening the whole east.
   const urban=(1-smooth(630,725,x))*smooth(220,290,x)*(1-smooth(255,335,z))*smooth(-410,-320,z);
   h+=(.15-h)*urban;

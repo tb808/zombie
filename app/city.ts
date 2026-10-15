@@ -7,6 +7,8 @@ import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeom
 import { surfaceMaterial, surfaceForColor, tintGeometry, type SurfaceKind } from './surfaces.ts';
 import { detailedCar } from './naturalAssets.ts';
 import { REGIONAL_SHELTERS, START_POINTS } from './shelterSites.ts';
+import { LEGACY_PARKING } from './streetPlan.ts';
+export { CITY_ROADS } from './streetPlan.ts';
 
 export type PlaceKind = 'hospital' | 'police' | 'market' | 'workshop' | 'shelter' | 'military' | 'station' | 'fire' | 'housing' | 'lab' | 'farm' | 'camp' | InteriorKind;
 export const CITY_PLACES: { id: string; name: string; kind: PlaceKind; x: number; z: number; color: number; story: string; hx?: number; hz?: number }[] = [
@@ -25,11 +27,6 @@ export const CITY_PLACES: { id: string; name: string; kind: PlaceKind; x: number
   { id:'camp', name:'WALDCAMP · EVAKUIERTE',kind:'camp',x:-121,z:119,color:0x727b53,story:'Hier endete Bens Flucht aus der Klinik.' },
   ...INTERIOR_PLACES,
   ...REGIONAL_SHELTERS.map(h=>({id:h.id,name:h.name.toUpperCase(),kind:'housing' as const,x:h.x,z:h.z,color:0x827359,story:'Einnehmbarer Unterschlupf: Innenraum räumen, Fenster vernageln, Türen verstärken und den Schlafplatz aktivieren.'})),
-];
-export const CITY_ROADS = [
-  {x:92,z:-20,w:9,h:260},{x:151,z:-20,w:10,h:270},{x:212,z:-20,w:9,h:260},
-  ...[-104,-46,4,54,104].map(z=>({x:150,z,w:132,h:9})),
-  {x:87,z:-7,w:45,h:9},{x:-113,z:82,w:7,h:103},{x:-87,z:34,w:59,h:7},
 ];
 export const CITY_LOOT = [
   {kind:'medkit',x:117,z:-71,count:2},{kind:'antibiotic',x:123,z:-73,count:1},
@@ -154,7 +151,11 @@ export function buildCity(scene: THREE.Scene, height: (x:number,z:number)=>numbe
     if(!safehouse&&(p.kind==='housing'||p.kind==='military'))for(let i=0;i<3;i++){const plank=box(group,-4.5,1.7+i*.35,7.2,3,.17,.13,0x6e563a);plank.rotation.z=.18;}
     // Silhouettes above street level create readable landmarks.
     if(p.kind==='hospital'){box(group,0,5,0,.45,2.2,.25,0xca6f55);box(group,0,5,0,1.8,.45,.25,0xca6f55);}
-    if(p.kind==='station'){for(let i=0;i<3;i++){box(group,12+i*8,1.4,-12,6,2.6,3.1,0x526866,true);box(group,12+i*8,2,-10.42,4.8,.8,.08,0x91a5a1);}}
+    if(p.kind==='station'){
+      for(let i=0;i<3;i++){box(group,-8+i*8,1.4,-12,6,2.6,3.1,0x526866,true);box(group,-8+i*8,2,-10.42,4.8,.8,.08,0x91a5a1);}
+      for(const z of [-12.7,-11.3])box(group,0,.12,z,26,.1,.08,0x68736d);
+      for(let x=-13;x<=13;x++)box(group,x,.05,-12,.18,.1,2.2,0x756c58);
+    }
     if(p.kind==='fire'){box(group,0,8,-3,3.3,8,3.3,0x645e4e);for(let y=5;y<12;y+=2)box(group,0,y,-1.3,1.7,.9,.1,0x263533);}
     if(p.kind==='military')for(const x of [-12,12])for(let i=0;i<3;i++)box(group,x,1,-6+i*5,2,2,3,0x59634c,true);
   }
@@ -167,9 +168,9 @@ export function buildCity(scene: THREE.Scene, height: (x:number,z:number)=>numbe
   }
   chunks.push(...buildInteriors(scene,height,obstacles,board));
   // Park, abandoned cars, checkpoint barricades and bus stops connect districts.
-  for(let i=0;i<16;i++){
-    const x=i%2?95:207,z=-91+Math.floor(i/2)*26,group=new THREE.Group();group.position.set(x,height(x,z),z);scene.add(group);chunks.push({group,x,z});
-    group.add(detailedCar(i));obstacles.push({x,z,hx:1,hz:2.2});
+  for(const {x,z,color} of LEGACY_PARKING){
+    const group=new THREE.Group();group.position.set(x,height(x,z),z);scene.add(group);chunks.push({group,x,z});
+    group.add(detailedCar(color));obstacles.push({x,z,hx:1.2,hz:2.4});
   }
   // Batch static pieces by material inside each cullable block. Doors retain
   // independent meshes because opening them changes gameplay collision.

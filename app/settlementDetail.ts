@@ -4,6 +4,7 @@ import { surfaceMaterial, type SurfaceKind } from './surfaces.ts';
 import { terrainHeight } from './regionTerrain.ts';
 import { PROP_DEFS, planSettlementDetail, type PropKind, type SettlementPlan } from './settlementPlan.ts';
 import type { Obstacle, Point } from './survival.ts';
+import { groundSurfaceTriangles } from './groundSurface.ts';
 
 type Component = {geometry:THREE.BufferGeometry;material:THREE.Material;matrix:THREE.Matrix4;color:THREE.Color};
 type Batch = {geometry:THREE.BufferGeometry;material:THREE.Material;matrices:THREE.Matrix4[];colors:THREE.Color[];cast:boolean};
@@ -163,15 +164,29 @@ export function buildSettlementGeometry(scene:THREE.Scene,plan:SettlementPlan,mo
   // Everyday scenes have a paved forecourt; cars sit in asphalt parking bays.
   // Small tiles conform to the existing terrain rather than flattening the map.
   for(const s of plan.surfaces){const nx=Math.ceil(s.width/1.5),nz=Math.ceil(s.depth/1.5),w=s.width/nx,d=s.depth/nz;
-    for(let iz=0;iz<nz;iz++)for(let ix=0;ix<nx;ix++){const x=s.x-s.width/2+(ix+.5)*w,z=s.z-s.depth/2+(iz+.5)*d;object.position.set(x,terrainHeight(x,z)+.014,z);object.rotation.set(0,0,0);object.scale.set(w+.006,.025,d+.006);object.updateMatrix();add({geometry:cube,material:material(s.kind==='asphalt'?'asphalt':'concrete'),matrix:new THREE.Matrix4(),color:new THREE.Color(s.kind==='asphalt'?0x7c837b:0xafa995)},object.matrix,x,z,150);}
+    for(let iz=0;iz<nz;iz++)for(let ix=0;ix<nx;ix++){const angle=s.rotation??0,dx=-s.width/2+(ix+.5)*w,dz=-s.depth/2+(iz+.5)*d,x=s.x+dx*Math.cos(angle)+dz*Math.sin(angle),z=s.z-dx*Math.sin(angle)+dz*Math.cos(angle);object.position.set(x,terrainHeight(x,z)+.014,z);object.rotation.set(0,angle,0);object.scale.set(w+.006,.025,d+.006);object.updateMatrix();add({geometry:cube,material:material(s.kind==='asphalt'?'asphalt':'concrete'),matrix:new THREE.Matrix4(),color:new THREE.Color(s.kind==='asphalt'?0x7c837b:0xafa995)},object.matrix,x,z,150);}
   }
   // Surface strips sample height along their entire length. Curbs and pavement
   // are visual dressing, so neither introduces a hidden navigation wall.
+  const pathBatches=new Map<string,{x:number;z:number;positions:number[]}>();
   for(const line of plan.lines){const length=Math.hypot(line.b.x-line.a.x,line.b.z-line.a.z),steps=Math.ceil(length/2),angle=Math.atan2(line.b.x-line.a.x,line.b.z-line.a.z);
-    for(let i=0;i<steps;i++){const t=(i+.5)/steps,x=line.a.x+(line.b.x-line.a.x)*t,z=line.a.z+(line.b.z-line.a.z)*t,curb=line.kind==='curb',walk=line.kind==='walk';
-      object.position.set(x,terrainHeight(x,z)+(curb?.09:walk?.025:.082),z);object.rotation.set(0,angle,0);object.scale.set(line.width,curb?.16:walk?.035:.012,length/steps+.008);object.updateMatrix();
-      add({geometry:cube,material:material('concrete'),matrix:new THREE.Matrix4(),color:new THREE.Color(curb||walk?0xaeb1a0:0xd2cdb4)},object.matrix,x,z,curb?155:130);
+    if(line.kind==='walk'){
+      const pieces=Math.ceil(length/8),nx=Math.cos(angle)*line.width/2,nz=-Math.sin(angle)*line.width/2;
+      for(let i=0;i<pieces;i++){
+        const a={x:line.a.x+(line.b.x-line.a.x)*i/pieces,z:line.a.z+(line.b.z-line.a.z)*i/pieces},b={x:line.a.x+(line.b.x-line.a.x)*(i+1)/pieces,z:line.a.z+(line.b.z-line.a.z)*(i+1)/pieces},x=(a.x+b.x)/2,z=(a.z+b.z)/2,key=`${Math.floor(x/CHUNK)},${Math.floor(z/CHUNK)}`;
+        if(!pathBatches.has(key))pathBatches.set(key,{x,z,positions:[]});
+        const vertices=groundSurfaceTriangles([{x:a.x-nx,z:a.z-nz},{x:b.x-nx,z:b.z-nz},{x:b.x+nx,z:b.z+nz},{x:a.x+nx,z:a.z+nz}],.045),target=pathBatches.get(key)!.positions;
+        for(const value of vertices)target.push(value);
+      }continue;
     }
+    for(let i=0;i<steps;i++){const t=(i+.5)/steps,x=line.a.x+(line.b.x-line.a.x)*t,z=line.a.z+(line.b.z-line.a.z)*t,curb=line.kind==='curb';
+      object.position.set(x,terrainHeight(x,z)+(curb?.09:.082),z);object.rotation.set(0,angle,0);object.scale.set(line.width,curb?.16:.012,length/steps+.008);object.updateMatrix();
+      add({geometry:cube,material:material('concrete'),matrix:new THREE.Matrix4(),color:new THREE.Color(curb?0xaeb1a0:0xd2cdb4)},object.matrix,x,z,curb?155:130);
+    }
+  }
+  for(const {x,z,positions}of pathBatches.values()){
+    const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));geometry.computeVertexNormals();
+    add({geometry,material:material('concrete'),matrix:new THREE.Matrix4(),color:new THREE.Color(0xaeb1a0)},new THREE.Matrix4(),x,z,145);
   }
   let instances=0,meshes=0;
   for(const cell of cells.values())for(const batch of cell.batches.values()){

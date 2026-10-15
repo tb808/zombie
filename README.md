@@ -16,7 +16,9 @@ Die Planung ist in `app/regionPlan.ts` abgelegt, das Gelände in `app/regionTerr
 
 ## Siedlungsdetails
 
-Stadt, Dörfer und Industriehöfe enthalten jetzt rund 1.400 zusätzliche Alltagsobjekte und 24 kleine Szenen: Caféterrassen, Haltestellen, Marktplatz, Spielbereich, Baustelle, Ladehof, Parkplatz und Evakuierungsorte. Straßenlaternen, Ampeln, Überwege, Bordsteine, Parkbuchten, unterschiedliche Fahrzeuge, Hauszugänge, Briefkästen, Hecken, Fahrräder und zurückgelassene Gegenstände verbinden die Gebäude mit ihrer Umgebung. Die Dörfer erhalten passende Landwirtschafts- und Forstdetails; Aschenrode zeigt einzelne Unfall- und Sperrstellen.
+Stadt, Dörfer und Industriehöfe enthalten jetzt rund 1.350 zusätzliche Alltagsobjekte und 24 kleine Szenen: Caféterrassen, Haltestellen, Marktplatz, Spielbereich, Baustelle, Ladehof, Parkplatz und Evakuierungsorte. Straßenlaternen, Ampeln, Überwege, Bordsteine, Parkbuchten, unterschiedliche Fahrzeuge, Hauszugänge, Briefkästen, Hecken, Fahrräder und zurückgelassene Gegenstände verbinden die Gebäude mit ihrer Umgebung. Die Dörfer erhalten passende Landwirtschafts- und Forstdetails; Aschenrode zeigt einzelne Unfall- und Sperrstellen.
+
+Stadt und Dörfer besitzen durchgehende Gehwege. Vollständige Objektflächen halten Fahrbahnen, Gehwege und Hauszugänge frei; Laternen erhalten nachvollziehbare Abstände. Korrigierte alte Zufahrten umgehen Gebäude, und alle sechs Haltestellen haben einen Unterstand. `npm run check:layout` prüft die gesamte Karte über volle Straßenbreiten, Gehwegflächen und Fundamente. Details stehen in [docs/map-placement.md](docs/map-placement.md).
 
 Vorhandene Assets werden wiederverwendet. Instanzierte Komponenten in 80-Meter-Zellen und getrennte Sichtweiten begrenzen die Darstellung; die zusätzliche Straßenbeleuchtung verwendet das bestehende Lichtbudget und Lenz' Stromversorgung. `app/settlementPlan.ts` plant die Details, `app/settlementDetail.ts` stellt sie dar. Gestaltungsregeln und Prüfungen stehen in [docs/settlement-details.md](docs/settlement-details.md). `npm run check:settlements` prüft Stellflächen, Fahrbahnen, Türen, Vorräte, Modelldimensionen, Instancing und Culling.
 

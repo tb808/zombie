@@ -4,7 +4,7 @@
 
 Eine Einheit entspricht einem Meter. Y zeigt nach oben; X/Z sind die Bodenebene, Norden ist negatives Z. Die Grenzen liegen bei X −1.200…1.200 und Z −1.000…1.000. Gegenüber 420 × 345 Metern ist die Fläche etwa 33-mal größer. Bei 4,6 m/s dauert ein 650-Meter-Weg gut zwei Minuten; die diagonale Durchquerung dauert zu Fuß etwa elf Minuten, ohne Kampf oder Erkundung.
 
-Die bestehenden Innenräume, Schutzbereiche, Waffen und Unterschlüpfe bleiben erhalten. Der Einstieg mit Mara, Jonas, Übungsziel und Startvorräten liegt jetzt in Fichtenau, dem am weitesten vom Stadtzentrum entfernten Dorf. Die spätere Rettung, Klinik, Polizei, Archiv und Endverteidigung nutzen weiterhin ihre vorhandenen Orte. `originalHeight` reproduziert das bisherige Gelände innerhalb der ursprünglichen Grenzen. Außerhalb blendet es sanft in die Region über. Die feinen bisherigen Vegetationsdetails bleiben auf das alte Gebiet begrenzt; ihre Schleife wächst nicht mit der neuen Fläche.
+Die bestehenden Innenräume, Schutzbereiche, Waffen und Unterschlüpfe bleiben erhalten. Der Einstieg mit Mara, Jonas, Übungsziel und Startvorräten liegt jetzt in Fichtenau, dem am weitesten vom Stadtzentrum entfernten Dorf. Die spätere Rettung, Klinik, Polizei, Archiv und Endverteidigung nutzen weiterhin ihre vorhandenen Orte. `originalHeight` bewahrt das ursprüngliche Gelände und ebnet die vollständigen Modellfundamente aus `legacyLayout.ts`. Außerhalb blendet es sanft in die Region über. Die feinen bisherigen Vegetationsdetails bleiben auf das alte Gebiet begrenzt; ihre Schleife wächst nicht mit der neuen Fläche.
 
 ## Struktur
 

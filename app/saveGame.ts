@@ -25,6 +25,15 @@ export type GameSave = {
   conversation:SavedConversation|null;flashlight:boolean;reloadLeft:number;shotCooldown:number;invulnerable:number;
 };
 export const lootKey = (kind:string,x:number,z:number,index:number) => `${kind}:${x}:${z}:${index}`;
+// Layout updates can move a wall or a parked object over an older save point.
+// Recover locally after restoring doors/gates, keeping the saved progress.
+export function recoverSavedPosition(p:{x:number;z:number},blocked:(x:number,z:number)=>boolean){
+  if(!blocked(p.x,p.z))return p;
+  for(let radius=.5;radius<=32;radius+=.5)for(let i=0;i<32;i++){
+    const angle=i*Math.PI/16,x=p.x+Math.cos(angle)*radius,z=p.z+Math.sin(angle)*radius;
+    if(x>=WORLD.minX&&x<=WORLD.maxX&&z>=WORLD.minZ&&z<=WORLD.maxZ&&!blocked(x,z))return {x,z};
+  }return null;
+}
 type Manifest = {loot:{key:string;count:number}[];doors:string[];gates:string[]};
 const record = (v:unknown):v is Record<string,unknown> => !!v&&typeof v==='object'&&!Array.isArray(v);
 const number = (v:unknown,min=0,max=1e9):v is number => typeof v==='number'&&Number.isFinite(v)&&v>=min&&v<=max;

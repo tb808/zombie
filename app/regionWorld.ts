@@ -4,9 +4,12 @@ import { surfaceMaterial, tintGeometry, type SurfaceKind } from './surfaces.ts';
 import { detailedCar } from './naturalAssets.ts';
 import { compactTreeParts } from './compactTrees.ts';
 import type { Obstacle, Point } from './survival.ts';
-import { BRIDGES, FIELDS, LAKES, REGION_BOUNDS, REGION_LOOT, REGION_POIS, ROAD_LINES, STRUCTURES, TREES, WATER_LINES, PARKED_CARS, SpatialIndex, fieldAt, forestDensity, inLegacy, overlaps, seeded, waterBlocked, waterClearance, roadClearance, type Structure } from './regionPlan.ts';
+import { BRIDGES, FIELDS, LAKES, REGION_BOUNDS, REGION_LOOT, REGION_POIS, ROAD_LINES, SITE_FIXTURES, STRUCTURES, TREES, WATER_LINES, PARKED_CARS, SpatialIndex, fieldAt, forestDensity, inLegacy, overlaps, seeded, waterBlocked, waterClearance, roadClearance, type Structure } from './regionPlan.ts';
 import { TERRAIN_STEP, terrainVertexHeight, terrainHeight } from './regionTerrain.ts';
 import { SITE_RESERVATIONS } from './shelterSites.ts';
+import { planStreetSurfaces } from './streetGeometry.ts';
+import { pedestrianClearance } from './streetPlan.ts';
+import { groundSurfaceTriangles } from './groundSurface.ts';
 
 const CHUNK = 100;
 type Chunk = { group:THREE.Group; detail:THREE.Group; distant:THREE.Group; terrain:THREE.Group; trees:THREE.Group[]; x:number;z:number;batches:Map<THREE.Material,THREE.BufferGeometry[]>;farBatches:Map<THREE.Material,THREE.BufferGeometry[]> };
@@ -23,7 +26,8 @@ export function regionalCollision() {
   }
   for(const t of TREES)add({x:t.x,z:t.z,hx:.27*t.scale,hz:.27*t.scale});
   for(const p of PARKED_CARS)add({x:p.x,z:p.z,hx:1.8,hz:2.5});
-  // Enclosing fort with an eight-metre gap on its southern access road.
+  for(const p of SITE_FIXTURES)if(p.solid)add(p);
+  // Fort openings follow both the main access and the western radar road.
   for(const o of fortWalls())add(o);
   // Four-metre bank cells serve bounded A*, while exact water tests prevent
   // actors from slipping through a sampled shoreline. Bridges are left open.
@@ -34,7 +38,11 @@ export function regionalCollision() {
   for(const lake of LAKES)for(let z=lake.z-lake.rz;z<=lake.z+lake.rz;z+=4)for(let x=lake.x-lake.rx;x<=lake.x+lake.rx;x+=4)if(waterBlocked(x,z))add({x,z,hx:1.4,hz:1.4,navigationOnly:true});
   return {obstacles,index,blocked:(x:number,z:number)=>waterBlocked(x,z)||index.query(x,z,.5).some(o=>!o.navigationOnly&&Math.abs(x-o.x)<o.hx+.45&&Math.abs(z-o.z)<o.hz+.45),near:(a:Point,b:Point,margin=18,cover=false)=>index.query((a.x+b.x)/2,(a.z+b.z)/2,Math.abs(a.x-b.x)/2+margin,Math.abs(a.z-b.z)/2+margin).filter(o=>!cover||!o.navigationOnly)};
 }
-export function fortWalls():Obstacle[]{return [{x:-510,z:-820,hx:.15,hz:85},{x:-290,z:-820,hx:.15,hz:85},{x:-400,z:-905,hx:110,hz:.15},{x:-457,z:-735,hx:53,hz:.15},{x:-343,z:-735,hx:53,hz:.15}];}
+export function fortWalls():Obstacle[]{
+  const radar=ROAD_LINES.find(r=>r.id==='radar')!,i=radar.samples.findIndex((p,i)=>i>0&&p.x<=-510&&radar.samples[i-1].x>-510),a=radar.samples[i-1],b=radar.samples[i],gate=a.z+(b.z-a.z)*(-510-a.x)/(b.x-a.x);
+  return [{x:-510,z:(-905+gate-8)/2,hx:.15,hz:(gate-8+905)/2},{x:-510,z:(gate+8-735)/2,hx:.15,hz:(-735-gate-8)/2},
+    {x:-290,z:-820,hx:.15,hz:85},{x:-400,z:-905,hx:110,hz:.15},{x:-459,z:-735,hx:51,hz:.15},{x:-341,z:-735,hx:51,hz:.15}];
+}
 
 export function buildRegionWorld(scene:THREE.Scene) {
   const root=new THREE.Group();root.name='tannwald-region';scene.add(root);
@@ -78,6 +86,11 @@ export function buildRegionWorld(scene:THREE.Scene) {
       const a=samples[i],b=samples[i+1],before=samples[Math.max(0,i-1)],after=samples[Math.min(samples.length-1,i+2)];
       const normal=(p:Point,q:Point)=>{const d=Math.hypot(q.x-p.x,q.z-p.z),w=water?width*(.85+.22*Math.sin((i+waterOffset)*.14)):width;return {x:(q.z-p.z)/d*w/2,z:-(q.x-p.x)/d*w/2};};
       const na=normal(before,b),nb=normal(a,after),corners=[[a.x-na.x,a.z-na.z],[a.x+na.x,a.z+na.z],[b.x-nb.x,b.z-nb.z],[b.x+nb.x,b.z+nb.z]];
+      if(!water){
+        const points=[corners[0],corners[1],corners[3],corners[2]].map(([x,z])=>({x,z})),positions=groundSurfaceTriangles(points,lift),geometry=new THREE.BufferGeometry();
+        geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));geometry.setAttribute('uv',new THREE.BufferAttribute(new Float32Array(positions.length/3*2),2));geometry.computeVertexNormals();
+        const chunk=at((a.x+b.x)/2,(a.z+b.z)/2);if(!chunk.batches.has(material))chunk.batches.set(material,[]);chunk.batches.get(material)!.push(geometry);continue;
+      }
       const along=water?1:Math.ceil(Math.hypot(b.x-a.x,b.z-a.z)/1),across=water?1:Math.ceil(width/1),vertices:number[]=[],uvs:number[]=[],indices:number[]=[];
       for(let iz=0;iz<=along;iz++)for(let ix=0;ix<=across;ix++){
         const t=iz/along,u=ix/across,lx=corners[0][0]+(corners[2][0]-corners[0][0])*t,lz=corners[0][1]+(corners[2][1]-corners[0][1])*t;
@@ -90,9 +103,22 @@ export function buildRegionWorld(scene:THREE.Scene) {
     }
   };
   const asphalt=surfaceMaterial('asphalt',0x989b97),dirt=surfaceMaterial('soil',0xb5a38b),water=new THREE.MeshStandardMaterial({color:0x557b83,roughness:.25,metalness:.25});
-  const sidewalk=surfaceMaterial('concrete',0xb8baae);
-  for(const road of ROAD_LINES){if(road.id.startsWith('city-')||road.id==='industry')ribbon(road.samples,road.width+4.2,sidewalk,.055);ribbon(road.samples,road.width,road.kind==='field'||road.kind==='forest'?dirt:asphalt,.07);
-    if(road.kind==='main')for(let i=1;i<road.samples.length;i+=2){const p=road.samples[i],q=road.samples[i-1],angle=Math.atan2(p.x-q.x,p.z-q.z);piece(p.x,terrainHeight(p.x,p.z)+.08,p.z,.15,.012,3,0xd5c9a4,'concrete',angle);}
+  for(const road of ROAD_LINES){const unpaved=road.kind==='field'||road.kind==='forest';ribbon(road.samples,road.width,unpaved?dirt:asphalt,unpaved?.025:.07);}
+  const streetPatches=planStreetSurfaces();
+  const streetBatches=new Map<Chunk,Map<string,{positions:number[];color:number;surface:SurfaceKind}>>();
+  for(const patch of streetPatches){
+    // Two-metre surface sections follow the ground; aggregate before creating
+    // GPU geometry instead of allocating a mesh/geometry for every paving tile.
+    const color=patch.kind==='sidewalk'?0xb8baae:patch.kind==='curb'?0xc8c7bb:patch.kind==='marking'?0xe3dfcb:0x999987;
+    const p=patch.points[0],chunk=at(p.x,p.z);if(!streetBatches.has(chunk))streetBatches.set(chunk,new Map());const batches=streetBatches.get(chunk)!;
+    if(!batches.has(patch.kind))batches.set(patch.kind,{positions:[],color,surface:patch.kind==='shoulder'?'soil':'concrete'});const {positions}=batches.get(patch.kind)!;
+    const triangles=groundSurfaceTriangles(patch.points,patch.kind==='curb'?.14:patch.kind==='sidewalk'?.09:patch.kind==='marking'?.086:.035);
+    for(const value of triangles)positions.push(value);
+  }
+  for(const [chunk,batches]of streetBatches)for(const {positions,color,surface}of batches.values()){
+    const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));g.setAttribute('uv',new THREE.BufferAttribute(new Float32Array(positions.length/3*2),2));g.computeVertexNormals();
+    const tintedPatch=tintGeometry(g,color);g.dispose();const m=mat(surface);
+    if(!chunk.batches.has(m))chunk.batches.set(m,[]);chunk.batches.get(m)!.push(tintedPatch);
   }
   let waterOffset=0;for(const line of WATER_LINES){ribbon(line.samples,line.width,water,0,true,waterOffset);waterOffset+=line.samples.length-1;}
   for(const lake of LAKES){const geometry=new THREE.CircleGeometry(1,64);geometry.rotateX(-Math.PI/2);geometry.scale(lake.rx,1,lake.rz);geometry.translate(lake.x,.22,lake.z);const mesh=new THREE.Mesh(geometry,water);at(lake.x,lake.z).group.add(mesh);}
@@ -165,8 +191,8 @@ export function buildRegionWorld(scene:THREE.Scene) {
   fortWalls().forEach(fence);
   // Distinct landmarks and functional yards, placed on their actual access spurs.
   for(const p of REGION_POIS){const y=terrainHeight(p.x,p.z);
-    if(p.kind==='farm')for(const offset of [-14,-6]){
-      const x=p.x+offset,z=p.z-18;
+    if(p.kind==='farm')for(const offset of [-20,-6]){
+      const x=p.x+offset,z=p.z-24;
       if(SITE_RESERVATIONS.some(s=>overlaps({x,z,hx:2.6,hz:2.6},s,1)))continue;
       const base=terrainHeight(x,z);piece(x,base+5,z,2.4,10,2.4,0x9da39b,'metal',0,cylinder);piece(x,base+10.4,z,2.5,1,2.5,0x6b7670,'metal',0,cone);
     }
@@ -175,8 +201,8 @@ export function buildRegionWorld(scene:THREE.Scene) {
       for(const offset of [-5,5])piece(p.x+offset,y+.75,p.z-12,.8,1.5,.6,0x9b7665,'metal');
     }
     if(p.kind==='radar'){const base=terrainHeight(p.x+10,p.z+5);piece(p.x+10,base+19,p.z+5,.7,38,.7,0x8f9993,'metal',0,cylinder,true);piece(p.x+10,base+35,p.z+5,7,.5,7,0xa4aaa4,'metal',0,cylinder,true);}
-    if(p.kind==='quarry')for(let i=0;i<4;i++)piece(p.x+45+i*8,y+2+i*2,p.z-15,30,4,65-i*8,0x9a9689,'stone');
-    if(p.kind==='power')for(let i=0;i<4;i++){piece(p.x-15+i*9,y+1.5,p.z-20,4,3,5,0x7e918c,'metal');piece(p.x-15+i*9,y+4,p.z-20,.6,2,.6,0xb5b4a2,'concrete',0,cylinder);}
+    if(p.kind==='quarry')for(let i=0;i<4;i++)piece(p.x+90+i*8,y+2+i*2,p.z-15,30,4,65-i*8,0x9a9689,'stone');
+    if(p.kind==='power')for(let i=0;i<4;i++){piece(p.x-15+i*9,y+1.5,p.z-30,4,3,5,0x7e918c,'metal');piece(p.x-15+i*9,y+4,p.z-30,.6,2,.6,0xb5b4a2,'concrete',0,cylinder);}
     if(p.kind==='camp')for(const offset of [-12,12])piece(p.x+offset,y+.9,p.z+8,2,1.8,2.5,0x8a9576,'fabric',0,cone);
   }
   // Factory stacks, timber yard, fort watchtowers and marked helicopter pad.
@@ -192,7 +218,7 @@ export function buildRegionWorld(scene:THREE.Scene) {
   for(const x of [-405,-395])piece(x,padY+.13,-784,.7,.012,10,0xd5d2b9,'concrete');piece(-400,padY+.13,-784,10,.012,.7,0xd5d2b9,'concrete');
   for(let i=0;i<10;i++)piece(-492+i*12,terrainHeight(-492+i*12,-878)+1.3,-878,8,2.6,3,0x6f7c63,'metal');
   const mastY=terrainHeight(-420,-815);piece(-420,mastY+12,-815,.4,24,.4,0x939e93,'metal',0,cylinder,true);piece(-420,mastY+22,-815,5,.2,5,0xa6aea0,'metal',0,cylinder,true);
-  for(const x of [-408,-392])piece(x,terrainHeight(x,-738)+1.3,-738,3,2.6,3,0x89927a,'metal');
+  for(const x of [-410,-390])piece(x,terrainHeight(x,-738)+1.3,-738,3,2.6,3,0x89927a,'metal');
   for(let i=0;i<5;i++)piece(-392+i*3.2,terrainHeight(-392+i*3.2,-739)+1.4,-739,2.9,.13,.13,0xccbf93,'metal');
   // Ground cover is instanced separately and only drawn in nearby chunks.
   const grassGeometry=new THREE.BufferGeometry(),gp:number[]=[];
@@ -203,7 +229,7 @@ export function buildRegionWorld(scene:THREE.Scene) {
   let grassSeed=1;
   for(let z=REGION_BOUNDS.minZ+8;z<REGION_BOUNDS.maxZ;z+=8)for(let x=REGION_BOUNDS.minX+8;x<REGION_BOUNDS.maxX;x+=8,grassSeed++){
     const wx=x+(seeded(grassSeed*37)-.5)*6,wz=z+(seeded(grassSeed*41)-.5)*6;
-    if(inLegacy(wx,wz)||wx>240&&wx<680&&wz>-410&&wz<285||waterClearance(wx,wz)<3||roadClearance(wx,wz)<2||parcels.query(wx,wz,3).length)continue;
+    if(inLegacy(wx,wz)||wx>240&&wx<680&&wz>-410&&wz<285||waterClearance(wx,wz)<3||pedestrianClearance(wx,wz)<2||parcels.query(wx,wz,3).length)continue;
     const chunk=at(wx,wz);if(!grassBatches.has(chunk))grassBatches.set(chunk,[]);grassBatches.get(chunk)!.push({x:wx,z:wz,scale:.7+seeded(grassSeed*43)*1.7});
   }
   for(const [chunk,points]of grassBatches){const mesh=new THREE.InstancedMesh(grassGeometry,grassMaterial,points.length);points.forEach((p,i)=>{transform.position.set(p.x,terrainHeight(p.x,p.z)+.02,p.z);transform.rotation.set(0,seeded(i*19)*Math.PI*2,0);transform.scale.setScalar(p.scale);transform.updateMatrix();mesh.setMatrixAt(i,transform.matrix);});mesh.computeBoundingSphere();chunk.detail.add(mesh);}
@@ -233,5 +259,5 @@ export function buildRegionWorld(scene:THREE.Scene) {
     }
   };
   update(-61,-35);
-  return {root,update,stats:()=>({chunks:chunks.size,activeChunks:active,structures:STRUCTURES.length,trees:TREES.length,activeTrees,bridges:BRIDGES.length,loot:REGION_LOOT.length})};
+  return {root,update,stats:()=>({chunks:chunks.size,activeChunks:active,structures:STRUCTURES.length,trees:TREES.length,activeTrees,bridges:BRIDGES.length,loot:REGION_LOOT.length,streetPatches:streetPatches.length})};
 }

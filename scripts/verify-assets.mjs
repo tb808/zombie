@@ -7,6 +7,8 @@ import { LOOT, NOTES, segmentBlocked, newInventory, ITEMS } from '../app/world.t
 import { CITY_LOOT } from '../app/city.ts';
 import { HOUSE_LOOT } from '../app/safehouses.ts';
 import { REFUGES, refugeWalls, footprintsOverlap } from '../app/environment.ts';
+import { LEGACY_BUILDINGS, LEGACY_FOUNDATIONS } from '../app/legacyLayout.ts';
+import { footprintStreetClearance } from '../app/streetPlan.ts';
 
 const root = new URL('../public/models/kenney/', import.meta.url);
 const buffer = path => { const b = readFileSync(new URL(path, root)); return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength); };
@@ -43,19 +45,22 @@ for (const folder of ['suburban', 'industrial', 'graveyard', 'survival']) {
     models.set(`${folder}/${file}`, asset.scene);
   }
 }
-const source = readFileSync(new URL('../app/Game.tsx', import.meta.url), 'utf8');
-const buildings = [...source.matchAll(/(?:building\(|\[)'((?:suburban|industrial)-building[^']*|crypt-large)',\s*(-?[\d.]+),\s*(-?[\d.]+),\s*([\d.]+),\s*(Math.PI(?:\s*\/\s*2)?|0)/g)];
-const obstacles = buildings.map(([, name, x, z, scale, rotation]) => {
+const obstacles = LEGACY_BUILDINGS.map(({name,x,z,scale,rotation}) => {
   const path = name === 'crypt-large' ? `graveyard/${name}.glb` : name.replace(/^(suburban|industrial)-/, '$1/') + '.glb';
   const model = models.get(path).clone();
   const size = new Box3().setFromObject(model).getSize(new Vector3());
   model.scale.setScalar((name === 'crypt-large' ? 3.7 : 5.6) * Number(scale) / size.y);
-  model.rotation.y = rotation === '0' ? 0 : rotation.includes('/') ? Math.PI / 2 : Math.PI;
+  model.rotation.y = rotation;
   model.position.set(Number(x), 0, Number(z)); model.updateMatrixWorld(true);
   const bounds = new Box3().setFromObject(model), center = bounds.getCenter(new Vector3()), extent = bounds.getSize(new Vector3());
   return { name, x: center.x, z: center.z, hx: extent.x / 2, hz: extent.z / 2 };
 });
 assert.equal(obstacles.length, 15, 'All 15 world buildings audited');
+for(const [i,b]of obstacles.entries()){
+  assert(footprintStreetClearance(b,true)>.3,`${b.name}: actual GLB overlaps a carriageway or pavement`);
+  const pad=LEGACY_FOUNDATIONS[i];
+  assert(Math.abs(b.x-pad.x)+b.hx<=pad.hx&&Math.abs(b.z-pad.z)+b.hz<=pad.hz,`${b.name}: actual GLB fits the shared foundation`);
+}
 for(let i=0;i<obstacles.length;i++)for(let j=i+1;j<obstacles.length;j++)
   assert(!footprintsOverlap(obstacles[i],obstacles[j],0),`${obstacles[i].name} overlaps ${obstacles[j].name}`);
 const refugeObstacles=REFUGES.flatMap(refugeWalls);

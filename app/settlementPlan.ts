@@ -1,12 +1,14 @@
-import type { Obstacle, Point } from './survival.ts';
-import { CITY_PLACES, CITY_ROADS, CITY_LOOT, CITY_NPCS, DISCOVERIES } from './city.ts';
+import { findPath, type Obstacle, type Point } from './survival.ts';
+import { CITY_PLACES, CITY_LOOT, CITY_NPCS, DISCOVERIES } from './city.ts';
 import { HOUSE_LOOT } from './safehouses.ts';
 import { REFUGES } from './environment.ts';
-import { LOOT, NOTES } from './world.ts';
-import { BRIDGES, PARKED_CARS, REGION_LOOT, REGION_POIS, REGION_SIGNS, ROAD_LINES, STRUCTURES, TREES, SpatialIndex, lineDistance, nearestOn, overlaps, roadClearance, seeded, waterClearance, zoneAt, type LineSegment } from './regionPlan.ts';
+import { LOOT, NOTES, segmentBlocked } from './world.ts';
+import { BRIDGES, PARKED_CARS, REGION_LOOT, REGION_POIS, REGION_SIGNS, ROAD_LINES, SITE_FIXTURES, STRUCTURES, TREES, SpatialIndex, lineDistance, nearestOn, overlaps, seeded, waterClearance, zoneAt } from './regionPlan.ts';
 import { terrainHeight } from './regionTerrain.ts';
 import { CAMPAIGN } from './campaign.ts';
 import { STORY_ACTIVITIES } from './storyActivities.ts';
+import { LEGACY_PARKING, STREET_LINES, STREET_SEGMENTS, footprintStreetClearance, sidewalkWidth, streetClearance } from './streetPlan.ts';
+import { LEGACY_FOUNDATIONS } from './legacyLayout.ts';
 
 export type PropKind = 'lamp'|'villageLamp'|'brokenLamp'|'bench'|'bin'|'tippedBin'|'mailbox'|'cabinet'|'hydrant'|'bollard'|'trafficLight'|'sign'|'streetSign'|'busStop'|'shelter'|'advert'|'bikeRack'|'bicycle'|'luggage'|'bag'|'litter'|'pallet'|'crate'|'barrel'|'dumpster'|'cone'|'barrier'|'container'|'cableReel'|'pipes'|'forklift'|'tractor'|'trailer'|'car'|'wreck'|'policeCar'|'ambulance'|'fireTruck'|'van'|'truck'|'bus'|'table'|'chair'|'fallenChair'|'umbrella'|'cart'|'cartShelter'|'hedge'|'planter'|'smallTree'|'weeds'|'shed'|'logs'|'well'|'swing'|'slide'|'priceSign';
 type Definition = { w:number;d:number;solid:boolean;distance:number };
@@ -23,57 +25,115 @@ export const PROP_DEFS:Record<PropKind,Definition> = {
 export type SettlementProp = Obstacle & { id:string;kind:PropKind;rotation:number;variant:number;zone:string;scene:string;y:number;distance:number };
 export type DressingLine = { a:Point;b:Point;width:number;kind:'curb'|'walk'|'stripe'|'parking'|'crossing'|'crack';scene:string };
 export type SettlementScene = Point & {id:string;name:string;zone:string;kind:string};
-export type DressingSurface = Point & {width:number;depth:number;kind:'paving'|'asphalt';scene:string};
+export type DressingSurface = Point & {width:number;depth:number;rotation?:number;kind:'paving'|'asphalt';scene:string};
 export type SettlementPlan = {props:SettlementProp[];lines:DressingLine[];scenes:SettlementScene[];surfaces:DressingSurface[]};
 
-const legacyRoads:LineSegment[]=CITY_ROADS.map((r,i)=>({a:{x:r.x-(r.w>r.h?r.w/2:0),z:r.z-(r.h>r.w?r.h/2:0)},b:{x:r.x+(r.w>r.h?r.w/2:0),z:r.z+(r.h>r.w?r.h/2:0)},width:Math.min(r.w,r.h),id:`legacy-${i}`,kind:'main'}));
-export const SETTLEMENT_ROADS:LineSegment[]=[...ROAD_LINES.flatMap(r=>r.samples.slice(1).map((b,i)=>({a:r.samples[i],b,width:r.width,id:r.id,kind:r.kind}))),...legacyRoads];
-export function dressingRoadClearance(x:number,z:number){return Math.min(roadClearance(x,z),...legacyRoads.map(r=>lineDistance({x,z},r)-r.width/2));}
-const entrancePads=STRUCTURES.filter(b=>b.enterable).flatMap(b=>[-1,1].map(side=>({x:b.x,z:b.z+side*(b.depth/2+3),hx:2.4,hz:3.4})));
+export const SETTLEMENT_ROADS=STREET_SEGMENTS;
+export const dressingRoadClearance=streetClearance;
+const entrancePads=STRUCTURES.flatMap(b=>[-1,1].map(side=>{const c=Math.cos(b.rotation),s=Math.sin(b.rotation);return {ownerId:b.id,x:b.x+side*(b.depth/2+2)*s,z:b.z+side*(b.depth/2+2)*c,hx:Math.abs(c)*1.2+Math.abs(s)*2,hz:Math.abs(s)*1.2+Math.abs(c)*2};}));
 export const DRESSING_RESERVED:Point[]=[...REGION_LOOT,...CITY_LOOT,...HOUSE_LOOT,...LOOT,...NOTES,...DISCOVERIES,...CITY_NPCS,
   ...CAMPAIGN,...STORY_ACTIVITIES.flatMap(m=>[...m.steps,...(m.actor?[m.actor]:[])]),
   {x:-61,z:-35},{x:-53,z:-37},{x:-49,z:-34},{x:-19,z:-4},{x:17,z:15},{x:48,z:23},{x:66,z:-25},{x:120,z:90},
 ];
 function fixedFootprints():Obstacle[]{return [
-  ...STRUCTURES.map(b=>({...b,hx:b.hx+(b.kind==='tower'||b.kind==='apartment'?3.5:2),hz:b.hz+(b.kind==='tower'||b.kind==='apartment'?3.5:2)})),
+  ...STRUCTURES.map(b=>({...b,hx:b.hx+(b.kind==='tower'||b.kind==='apartment'?3.5:2),hz:b.hz+(b.kind==='tower'||b.kind==='apartment'?3.5:2)})),...SITE_FIXTURES,...LEGACY_FOUNDATIONS,
   ...CITY_PLACES.map(b=>({...b,hx:b.hx??7.8,hz:b.hz??7.5})),...REFUGES,
   ...PARKED_CARS.map(p=>({...p,hx:2,hz:2.8})),...REGION_SIGNS.map(p=>({...p,hx:2,hz:.5})),...TREES.map(p=>({...p,hx:1,hz:1})),...entrancePads,
   // Existing street cars, original skyline, and forestry yard.
-  ...Array.from({length:16},(_,i)=>({x:i%2?95:207,z:-91+Math.floor(i/2)*26,hx:1.2,hz:2.4})),
+  ...LEGACY_PARKING.map(p=>({...p,hx:1.2,hz:2.4})),
+  ...[173,181,189].map(x=>({x,z:68,hx:3.2,hz:1.65})),
   ...[105,136,167,198].flatMap(x=>[-161,138].map(z=>({x,z,hx:5.8,hz:6.3}))),{x:-793,z:585,hx:8,hz:5},
 ];}
 export function planSettlementDetail(extraFootprints:readonly Obstacle[]=[],extraReserved:readonly Point[]=[]):SettlementPlan{
   const props:SettlementProp[]=[],lines:DressingLine[]=[],scenes:SettlementScene[]=[],surfaces:DressingSurface[]=[],occupied=new SpatialIndex<Obstacle>(32);
   [...fixedFootprints(),...extraFootprints].forEach(p=>occupied.add(p));
   const reserved=[...DRESSING_RESERVED,...extraReserved];let serial=1;
-  const put=(kind:PropKind,x:number,z:number,rotation=0,zone='MAIN_CITY',scene='street',variant=serial%3)=>{
+  const line=(a:Point,b:Point,width:number,kind:DressingLine['kind'],scene='street')=>{if(Math.hypot(a.x-b.x,a.z-b.z)>.08)lines.push({a,b,width,kind,scene});};
+  line({x:18,z:2.7},{x:18,z:4.5},1.5,'walk','cemetery-access');
+  line({x:18,z:4.5},{x:22,z:7},1.5,'walk','cemetery-access');
+  line({x:22,z:7},{x:22,z:16.2},1.5,'walk','cemetery-access');
+  // Paths use the actual building walls, rather than the larger planting/prop
+  // reservations. A route around a house must never cut through that house.
+  const access=new SpatialIndex<Obstacle>(32);
+  [...STRUCTURES,...LEGACY_FOUNDATIONS,...SITE_FIXTURES.filter(p=>p.solid),...TREES.map(p=>({...p,hx:.4,hz:.4})),...CITY_PLACES.map(p=>({...p,hx:p.hx??7.5,hz:p.hz??7})),...extraFootprints].forEach(p=>access.add(p));
+  const accessBuildings=[...STRUCTURES,...LEGACY_FOUNDATIONS.map(b=>({...b,id:b.name,enterable:true,width:2*(Math.abs(Math.cos(b.rotation))*b.hx+Math.abs(Math.sin(b.rotation))*b.hz),depth:2*(Math.abs(Math.cos(b.rotation))*b.hz+Math.abs(Math.sin(b.rotation))*b.hx)}))];
+  for(const b of accessBuildings){
+    const local=(dz:number)=>({x:b.x+Math.sin(b.rotation)*dz,z:b.z+Math.cos(b.rotation)*dz});
+    for(const side of b.enterable?[-1,1]:[1]){
+      const apron=Math.min(b.hx/Math.max(.001,Math.abs(Math.sin(b.rotation))),b.hz/Math.max(.001,Math.abs(Math.cos(b.rotation))))+1.4;
+      const front=local(side*(b.depth/2+.4)),gate=local(side*apron),scene=`yard-${b.id}`;
+      line(front,gate,1.5,'walk',scene);
+      let connected=false;
+      const candidates=SETTLEMENT_ROADS.map(r=>({r,q:nearestOn(gate,r.a,r.b)})).sort((a,b)=>Math.hypot(a.q.x-gate.x,a.q.z-gate.z)-Math.hypot(b.q.x-gate.x,b.q.z-gate.z));
+      for(const {r,q}of candidates.slice(0,12)){
+        const distance=Math.hypot(gate.x-q.x,gate.z-q.z);if(distance<r.width/2+1||distance>85)continue;
+        const offset=r.width/2+Math.max(.2,sidewalkWidth(r,q)*.65),end={x:q.x+(gate.x-q.x)/distance*offset,z:q.z+(gate.z-q.z)/distance*offset};
+        const steps=Math.ceil(distance),clear=Array.from({length:steps+1},(_,i)=>({x:gate.x+(end.x-gate.x)*i/steps,z:gate.z+(end.z-gate.z)*i/steps})).every(p=>waterClearance(p.x,p.z)>2&&streetClearance(p.x,p.z)>.05&&!access.query(p.x,p.z,.8).some(o=>overlaps({...p,hx:.75,hz:.75},o,0)));
+        if(clear){line(gate,end,1.5,'walk',scene);connected=true;break;}
+      }
+      if(!connected)for(const {r,q}of candidates.slice(0,6)){
+        const distance=Math.hypot(gate.x-q.x,gate.z-q.z);if(distance<r.width/2+1||distance>100)continue;
+        const offset=r.width/2+Math.max(1,sidewalkWidth(r,q)*.65),end={x:q.x+(gate.x-q.x)/distance*offset,z:q.z+(gate.z-q.z)/distance*offset},centre={x:(gate.x+end.x)/2,z:(gate.z+end.z)/2},radius=distance/2+18;
+        const blocked=access.query(centre.x,centre.z,radius);
+        const path=findPath(gate,end,blocked,.8);if(!path.length)continue;
+        const points=[gate,...path];
+        if(!points.slice(1).every((p,i)=>{const a=points[i],steps=Math.ceil(Math.hypot(p.x-a.x,p.z-a.z));return Array.from({length:steps+1},(_,n)=>({x:a.x+(p.x-a.x)*n/steps,z:a.z+(p.z-a.z)*n/steps})).every(q=>waterClearance(q.x,q.z)>2&&streetClearance(q.x,q.z)>.05);}))continue;
+        const inflated=blocked.map(o=>({...o,hx:o.hx+.8,hz:o.hz+.8})),smooth=[gate];let cursor=0;
+        while(cursor<points.length-1){
+          let next=points.length-1;
+          for(;next>cursor+1;next--){const a=points[cursor],b=points[next],steps=Math.ceil(Math.hypot(b.x-a.x,b.z-a.z));
+            if(!segmentBlocked(a.x,a.z,b.x,b.z,inflated)&&Array.from({length:steps+1},(_,i)=>({x:a.x+(b.x-a.x)*i/steps,z:a.z+(b.z-a.z)*i/steps})).every(p=>waterClearance(p.x,p.z)>2&&streetClearance(p.x,p.z)>.05))break;
+          }smooth.push(points[next]);cursor=next;
+        }
+        for(let i=1;i<smooth.length;i++)line(smooth[i-1],smooth[i],1.5,'walk',scene);break;
+      }
+    }
+  }
+  const put=(kind:PropKind,x:number,z:number,rotation=0,zone='MAIN_CITY',scene='street',variant=serial%3,probe=false)=>{
     const d=PROP_DEFS[kind],c=Math.abs(Math.cos(rotation)),s=Math.abs(Math.sin(rotation)),hx=(c*d.w+s*d.d)/2,hz=(s*d.w+c*d.d)/2;
     const footprint={x,z,hx,hz},y=terrainHeight(x,z);
     const across=Math.hypot(hx,hz);
-    if(!Number.isFinite(y)||waterClearance(x,z)<across+2||dressingRoadClearance(x,z)<across+.4||occupied.query(x,z,hx+.35,hz+.35).some(o=>overlaps(footprint,o,.35))||reserved.some(p=>Math.abs(x-p.x)<hx+1.8&&Math.abs(z-p.z)<hz+1.8)||BRIDGES.some(b=>Math.hypot(x-b.x,z-b.z)<b.length/2+6)||lines.some(l=>l.kind==='walk'&&lineDistance({x,z},{...l,id:'walk',kind:'walk'})<across+l.width/2+.6))return false;
+    if((kind==='lamp'||kind==='villageLamp')&&props.some(p=>(p.kind==='lamp'||p.kind==='villageLamp')&&Math.hypot(p.x-x,p.z-z)<18))return false;
+    if(!Number.isFinite(y)||waterClearance(x,z)<across+2||footprintStreetClearance(footprint,true)<.4||occupied.query(x,z,hx+.35,hz+.35).some(o=>overlaps(footprint,o,.35))||reserved.some(p=>Math.abs(x-p.x)<hx+1.8&&Math.abs(z-p.z)<hz+1.8)||BRIDGES.some(b=>Math.hypot(x-b.x,z-b.z)<b.length/2+6)||lines.some(l=>l.kind==='walk'&&lineDistance({x,z},{...l,id:'walk',kind:'walk'})<across+l.width/2+.6))return false;
     if(Math.max(...[[hx,hz],[-hx,hz],[hx,-hz],[-hx,-hz]].map(([dx,dz])=>Math.abs(terrainHeight(x+dx,z+dz)-y)))>.22)return false;
+    if(probe)return true;
     const prop={id:`dressing-${serial++}`,kind,x,z,hx,hz,rotation,variant,zone,scene,y,distance:d.distance};props.push(prop);occupied.add(prop);return true;
   };
-  const line=(a:Point,b:Point,width:number,kind:DressingLine['kind'],scene='street')=>{if(Math.hypot(a.x-b.x,a.z-b.z)>.08)lines.push({a,b,width,kind,scene});};
-  const urban=(x:number,z:number)=>x>85&&x<675&&z>-390&&z<275;
+  const stops=[['zentrum',370,-62,'MAIN_CITY'],['linden',475,184,'CITY_SUBURBS'],['kornweiler',-676,-508,'VILLAGE_01'],['fichtenau',-765,530,'VILLAGE_02'],['brueckenfeld',670,442,'VILLAGE_03'],['aschenrode',625,-678,'VILLAGE_04']] as const;
+  for(const[id,x,z,zone]of stops){
+    const candidates=SETTLEMENT_ROADS.filter(r=>sidewalkWidth(r,nearestOn({x,z},r.a,r.b))>0).sort((a,b)=>lineDistance({x,z},a)-lineDistance({x,z},b));
+    let placed=false;
+    for(const closest of candidates.filter(r=>lineDistance({x,z},r)<100).slice(0,150)){
+      const q=nearestOn({x,z},closest.a,closest.b),angle=Math.atan2(closest.b.x-closest.a.x,closest.b.z-closest.a.z);
+      for(const side of [1,-1]){
+        const ox=Math.cos(angle)*side,oz=-Math.sin(angle)*side,offset=closest.width/2+sidewalkWidth(closest,q)+1.8,centre={x:q.x+ox*offset,z:q.z+oz*offset},rotation=angle-side*Math.PI/2;
+        const pole={x:centre.x-Math.sin(angle)*5.2-ox,z:centre.z-Math.cos(angle)*5.2-oz};
+        if(!put('shelter',centre.x,centre.z,rotation,zone,`stop-${id}`,0,true)||!put('busStop',pole.x,pole.z,rotation,zone,`stop-${id}`,0,true))continue;
+        put('shelter',centre.x,centre.z,rotation,zone,`stop-${id}`);put('busStop',pole.x,pole.z,rotation,zone,`stop-${id}`);
+        const placeLocal=(kind:PropKind,along:number,out:number)=>put(kind,centre.x+Math.sin(angle)*along+ox*out,centre.z+Math.cos(angle)*along+oz*out,rotation,zone,`stop-${id}`);
+        placeLocal('bench',5.5,0);placeLocal('bin',-4,1);placeLocal('luggage',3.2,0);placeLocal('bag',-3.2,0);placeLocal('bicycle',8,0);placeLocal('sign',-7,1);
+        surfaces.push({...centre,width:4.8,depth:2.5,rotation,kind:'paving',scene:`stop-${id}`});
+        scenes.push({...centre,id:`stop-${id}`,name:`HALTESTELLE · ${id.toUpperCase()}`,kind:'busStop',zone});placed=true;break;
+      }if(placed)break;
+    }
+  }
   const district=(x:number,z:number)=>z<-225?'INDUSTRIAL_ZONE':z>145?'CITY_SUBURBS':'MAIN_CITY';
-  const roads=ROAD_LINES.filter(r=>r.id.startsWith('city-')||r.id==='industry'||r.id.endsWith('-lane'));
+  const roads=STREET_LINES.map(r=>({...r,samples:r.samples.flatMap((p,i)=>{
+    if(i===r.samples.length-1)return [p];const q=r.samples[i+1],steps=Math.ceil(Math.hypot(q.x-p.x,q.z-p.z)/10);
+    return Array.from({length:steps},(_,n)=>({x:p.x+(q.x-p.x)*n/steps,z:p.z+(q.z-p.z)*n/steps}));
+  })}));
   // Verge furniture follows actual street tangents. Separate intervals and
   // staggered sides avoid a repeated lamp/bench/bin row at identical distances.
   for(const road of roads){let travel=0,next=9+seeded(road.id.length*33)*14;
     for(let i=1;i<road.samples.length;i++){const a=road.samples[i-1],p=road.samples[i],step=Math.hypot(p.x-a.x,p.z-a.z),angle=Math.atan2(p.x-a.x,p.z-a.z);travel+=step;
-      const village=road.id.endsWith('-lane'),zone=village?zoneAt(p.x,p.z)?.id??'VILLAGE_01':district(p.x,p.z);
-      // Curbs stop at intersections and never extend across a side road.
-      if(!village&&urban(p.x,p.z))for(const side of [-1,1]){const shift=(q:Point)=>({x:q.x+Math.cos(angle)*side*(road.width/2+.2),z:q.z-Math.sin(angle)*side*(road.width/2+.2)}),ca=shift(a),cb=shift(p),steps=Math.ceil(step);
-        const clear=Array.from({length:steps+1},(_,n)=>({x:ca.x+(cb.x-ca.x)*n/steps,z:ca.z+(cb.z-ca.z)*n/steps})).every(q=>SETTLEMENT_ROADS.every(r=>lineDistance(q,r)>=r.width/2+.12));
-        if(clear)line(ca,cb,.16,'curb');
-      }
-      if(travel<next)continue;next+=village?38+seeded(i*71)*20:27+seeded(i*71)*15;
-      for(const side of [-1,1]){const offset=road.width/2+2.05,wx=p.x+Math.cos(angle)*side*offset,wz=p.z-Math.sin(angle)*side*offset;
-        put(village?'villageLamp':'lamp',wx,wz,angle+side*Math.PI/2,zone);
+      const village=zoneAt(p.x,p.z)?.biome==='village',walk=sidewalkWidth({...road,a,b:p},p),zone=village?zoneAt(p.x,p.z)!.id:district(p.x,p.z);
+      if(!walk){next=travel+12;continue;}
+      if(travel<next)continue;next=travel+(village?38+seeded(i*71)*20:27+seeded(i*71)*15);
+      for(const side of [-1,1]){const offset=road.width/2+walk+(village?1.2:1.6),wx=p.x+Math.cos(angle)*side*offset,wz=p.z-Math.sin(angle)*side*offset;
+        put(village?'villageLamp':'lamp',wx,wz,angle+(side>0?Math.PI:0),zone);
         if(!village&&zone==='MAIN_CITY'){
           const fx=wx+Math.sin(angle)*5,fz=wz+Math.cos(angle)*5;
-          put(i%4===0?'bench':i%4===1?'bin':i%4===2?'hydrant':'cabinet',fx,fz,angle,zone);
+          put(i%4===0?'bench':i%4===1?'bin':i%4===2?'hydrant':'cabinet',fx,fz,angle-side*Math.PI/2,zone);
           if(i%3===0)put('litter',fx+Math.cos(angle)*1.2,fz-Math.sin(angle)*1.2,i,zone);
         }
       }
@@ -81,7 +141,7 @@ export function planSettlementDetail(extraFootprints:readonly Obstacle[]=[],extr
   }
   // Major junctions: stop lines, zebra crossings and corner-mounted signals.
   for(const x of [270,370,475,580])for(const z of [-104,4,104]){
-    for(const [dx,dz,rotation]of [[9,9,0],[-9,-9,Math.PI]] as const){put('trafficLight',x+dx,z+dz,rotation);put('streetSign',x+dx+2,z+dz,rotation);}
+    for(const [dx,dz,rotation]of [[10.5,10.5,0],[-10.5,-10.5,Math.PI]] as const){put('trafficLight',x+dx,z+dz,rotation);put('streetSign',x+dx+2,z+dz,rotation);}
     for(const side of [-1,1]){
       for(let i=-3;i<=3;i++)line({x:x+i*.9,z:z+side*8-1.5},{x:x+i*.9,z:z+side*8+1.5},.52,'crossing');
       line({x:x-4.5,z:z+side*13},{x:x+4.5,z:z+side*13},.28,'stripe');
@@ -90,13 +150,7 @@ export function planSettlementDetail(extraFootprints:readonly Obstacle[]=[],extr
   // Building yards use the facade's orientation. Two clear metres around an
   // entrance are reserved for doors, window construction and navigation.
   for(const b of STRUCTURES){const c=Math.cos(b.rotation),s=Math.sin(b.rotation),local=(dx:number,dz:number)=>({x:b.x+dx*c+dz*s,z:b.z-dx*s+dz*c}),scene=`yard-${b.id}`;
-    const offset=b.depth/2+4.8,home=b.kind==='house'||b.kind==='ruin',front=local(0,b.depth/2+.35),gate=local(0,offset+2);
-    line(front,gate,1.3,'walk',scene);
-    const road=SETTLEMENT_ROADS.reduce((best,r)=>lineDistance(gate,r)<lineDistance(gate,best)?r:best),q=nearestOn(gate,road.a,road.b),distance=Math.hypot(gate.x-q.x,gate.z-q.z);
-    if(distance>road.width/2+1&&distance<65){const end={x:q.x+(gate.x-q.x)/distance*(road.width/2+.2),z:q.z+(gate.z-q.z)/distance*(road.width/2+.2)},steps=Math.ceil(distance/2);
-      const clear=Array.from({length:steps},(_,i)=>({x:gate.x+(end.x-gate.x)*(i+1)/steps,z:gate.z+(end.z-gate.z)*(i+1)/steps})).every(p=>!occupied.query(p.x,p.z,.8).length&&waterClearance(p.x,p.z)>2);
-      if(clear)line(gate,end,1.3,'walk',scene);
-    }
+    const offset=b.depth/2+4.8,home=b.kind==='house'||b.kind==='ruin';
     if(home){
       for(const [kind,dx,dz]of [['mailbox',b.width/2+2.8,offset],['bin',-b.width/2-3,offset-1],['planter',b.width/2+2.8,offset-3]] as const){const p=local(dx,dz);put(kind,p.x,p.z,b.rotation,b.zone,scene);}
       const p=local(-b.width/2-3.5,-2);put('hedge',p.x,p.z,b.rotation+Math.PI/2,b.zone,scene);
@@ -138,7 +192,7 @@ export function planSettlementDetail(extraFootprints:readonly Obstacle[]=[],extr
   const findSite=(x:number,z:number,hx:number,hz:number)=>{
     for(let i=0;i<160;i++){const angle=i*2.399,r=i?5+Math.sqrt(i)*4:0,p={x:x+Math.cos(angle)*r,z:z+Math.sin(angle)*r,hx,hz};
       const y=terrainHeight(p.x,p.z),level=[[-hx,-hz],[hx,-hz],[-hx,hz],[hx,hz],[0,-hz],[0,hz],[-hx,0],[hx,0]].every(([dx,dz])=>Math.abs(terrainHeight(p.x+dx,p.z+dz)-y)<.18);
-      if(level&&!occupied.query(p.x,p.z,hx+1,hz+1).some(o=>overlaps(p,o,1))&&waterClearance(p.x,p.z)>Math.hypot(hx,hz)+3&&dressingRoadClearance(p.x,p.z)>Math.hypot(hx,hz)+1&&!reserved.some(q=>Math.abs(q.x-p.x)<hx+3&&Math.abs(q.z-p.z)<hz+3))return p;
+      if(level&&!occupied.query(p.x,p.z,hx+1,hz+1).some(o=>overlaps(p,o,1))&&waterClearance(p.x,p.z)>Math.hypot(hx,hz)+3&&footprintStreetClearance(p,true)>1&&!lines.some(l=>l.kind==='walk'&&lineDistance(p,{...l,id:'walk'})<Math.hypot(hx,hz)+l.width/2)&&!reserved.some(q=>Math.abs(q.x-p.x)<hx+3&&Math.abs(q.z-p.z)<hz+3))return p;
     }return null;
   };
   const plannedScenes:[string,string,string,number,number,string,readonly [PropKind,number,number,number?][]][]=[
@@ -150,13 +204,6 @@ export function planSettlementDetail(extraFootprints:readonly Obstacle[]=[],extr
     ['loading-yard','OSTWERK · LADEHOF','industry',562,-280,'INDUSTRIAL_ZONE',[['container',-3,-5],['truck',4,2],['forklift',-4,2],['pallet',0,2],['crate',0,4],['cableReel',-4,5],['dumpster',5,-5],['cabinet',0,-1]]],
   ];
   for(const [id,name,kind,x,z,zone,layout]of plannedScenes){const site=findSite(x,z,9,10)??findSite(x,z,7,8);if(site)sceneAt(id,name,kind,site.x,site.z,zone,layout);}
-  const stops=[['zentrum',370,-62,'MAIN_CITY'],['linden',475,184,'CITY_SUBURBS'],['kornweiler',-676,-508,'VILLAGE_01'],['fichtenau',-765,530,'VILLAGE_02'],['brueckenfeld',670,442,'VILLAGE_03'],['aschenrode',625,-678,'VILLAGE_04']] as const;
-  for(const[id,x,z,zone]of stops){const closest=SETTLEMENT_ROADS.reduce((best,r)=>lineDistance({x,z},r)<lineDistance({x,z},best)?r:best),q=nearestOn({x,z},closest.a,closest.b),angle=Math.atan2(closest.b.x-closest.a.x,closest.b.z-closest.a.z),side=zone==='VILLAGE_04'?-1:1,ox=Math.cos(angle)*side,oz=-Math.sin(angle)*side;
-    const centre={x:q.x+ox*(closest.width/2+5),z:q.z+oz*(closest.width/2+5)},before=props.length;
-    const placeLocal=(kind:PropKind,along:number,out:number)=>put(kind,centre.x+Math.sin(angle)*along+ox*out,centre.z+Math.cos(angle)*along+oz*out,angle+side*Math.PI/2,zone,`stop-${id}`);
-    placeLocal('shelter',0,0);placeLocal('busStop',-4,-1);placeLocal('bench',3,1);placeLocal('bin',-3,2);placeLocal('luggage',3,-1);placeLocal('bag',-2,2);placeLocal('bicycle',5,1);placeLocal('sign',-7,0);
-    if(props.length>before)scenes.push({...centre,id:`stop-${id}`,name:`HALTESTELLE · ${id.toUpperCase()}`,kind:'busStop',zone});
-  }
   // Existing public buildings keep all quest interactions and construction
   // points clear. Emergency vehicles are placed beside their actual destination.
   sceneAt('st-anna','ST. ANNA · EVAKUIERUNG','hospital',130,-89,'LEGACY_CITY',[['ambulance',0,0],['barrier',-6,0],['luggage',-3,3],['bag',-4,2]]);

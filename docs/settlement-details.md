@@ -1,6 +1,6 @@
 # Siedlungsdetails
 
-Die zweite Gestaltungsrunde ergänzt die bestehenden Orte. Weltgrenzen, Straßenverbindungen, Gewässer, Gebäudeparzellen, Kampagne und Loot-Mengen bleiben erhalten. Die Planung umfasst 1.418 zusätzliche Props in 24 besonderen Szenen. Fahrbahnen und Zugänge werden vor der Zulassung geprüft; die Darstellung fügt keine neuen großen Gebäude hinzu.
+Die Siedlungsplanung ergänzt die bestehenden Orte um Alltagsobjekte und 24 besondere Szenen. Requisiten halten Fahrbahnen, Gehwege und vorab geplante Hauszugänge frei. Die Überarbeitung der gesamten Karte, korrigierte alte Zufahrten und die gemeinsame Straßenplanung sind in [map-placement.md](map-placement.md) beschrieben. Die folgenden Abnahmedaten dokumentieren die frühere Gestaltungsrunde vom 7. Oktober.
 
 ## Unterschiedliche Ortsbilder
 
@@ -10,7 +10,7 @@ Die zweite Gestaltungsrunde ergänzt die bestehenden Orte. Weltgrenzen, Straßen
 - Kornweiler: Traktor, Anhänger, Holz und Brunnen im landwirtschaftlichen Hof. Fichtenau: Forstanhänger, Holzstapel, Schuppen und Arbeitsmaterial. Brückenfeld: Werkstatttransporter, Bank, Brunnen und Tankstellenvorplatz. Aschenrode: beschädigtes Auto mit offener Tür, Absperrung, umgestürzte Tonne und gefallene Laterne.
 - Bestehende öffentliche Orte: Krankenwagen an St. Anna, Polizeifahrzeug und Sperre beim Revier, Feuerwehrauto an Wache 04, Einkaufswagen an der Markthalle, Caféterrasse und Evakuierungsbus mit Gepäck am Bahnhof.
 
-Die weiteren kleinen Orte umfassen Café am Turm, alten Marktplatz, Lindenpark, eine abgebrochene Baustelle, Nahkauf-Parkplatz, Ostwerk-Ladehof und sechs Haltestellen. Einige Haltestellen haben einen Unterstand, andere nur Haltestellenschild, Sitzplatz und kleinere Gegenstände. Gepäck, Müllsäcke, einzelne beschädigte Props und zurückgelassene Arbeitsgeräte erzählen von einem abrupten Aufbruch; intakte Alltagsobjekte überwiegen.
+Die weiteren kleinen Orte umfassen Café am Turm, alten Marktplatz, Lindenpark, eine abgebrochene Baustelle, Nahkauf-Parkplatz, Ostwerk-Ladehof und sechs Haltestellen. Alle Haltestellen besitzen einen zur Fahrbahn geöffneten Unterstand und ein Haltestellenschild; Sitzplätze und kleinere Gegenstände ergänzen freie Flächen. Gepäck, Müllsäcke, einzelne beschädigte Props und zurückgelassene Arbeitsgeräte erzählen von einem abrupten Aufbruch; intakte Alltagsobjekte überwiegen.
 
 ## Vorhandene Assets
 
