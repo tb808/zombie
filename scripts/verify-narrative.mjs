@@ -1,0 +1,51 @@
+import assert from 'node:assert/strict';
+import * as THREE from 'three';
+import { STORY_CHOICES, newNarrative, choose, validNarrative, noahAlive, ending } from '../app/narrative.ts';
+import { STORY_ACTIVITIES } from '../app/storyActivities.ts';
+import { resolveActivity } from '../app/storyNarrative.ts';
+import { CAMPAIGN, missionIndex } from '../app/campaign.ts';
+import { buildFactionCombat } from '../app/factionCombat.ts';
+
+const activity=(id,n)=>resolveActivity(STORY_ACTIVITIES.find(m=>m.id===id),n);
+let combinations=[newNarrative()];
+for(const c of Object.values(STORY_CHOICES))combinations=combinations.flatMap(n=>c.options.map(o=>choose(n,c.id,o.id)));
+assert.equal(combinations.length,288);
+for(const n of combinations){
+  assert(validNarrative(n));
+  const all=STORY_ACTIVITIES.map(m=>resolveActivity(m,n));
+  assert(all.every(m=>m.steps.length>=3&&m.steps.every(s=>Number.isFinite(s.x)&&Number.isFinite(s.z)&&s.label)));
+  assert(all.filter(m=>m.chapter<2).every(m=>m.steps.every(s=>s.kind!=='war')),'War develops after the early relief missions');
+  assert.equal(activity('jaeger',n).steps[0].count,n.choices.care==='scouts'?2:3);
+  assert.equal(activity('kornweiler',n).steps.length,n.choices.supplies==='medics'?5:3);
+  assert.equal(activity('cityCentre',n).steps.some(s=>s.kind==='switch'),n.choices.signal==='coded');
+  assert.equal(activity('suburbs',n).steps.some(s=>s.kind==='repair'),n.choices.truth==='private');
+  assert.equal(activity('industrial',n).steps.find(s=>s.kind==='war').opposition,n.choices.front==='hospital'?'cinder':n.choices.front==='union'?'wardens':'union');
+  const pact=activity('brueckenfeld',n),battle=pact.steps.find(s=>s.kind==='war');
+  assert.equal(battle.opposition,n.choices.pact==='truce'?'cinder':n.choices.pact==='wardens'?'union':'wardens');
+  assert.equal(battle.allies.length,n.choices.pact==='truce'?2:1);
+  assert.equal(pact.steps.filter(s=>s.speaker?.includes('FUNK')).length,n.choices.pact==='truce'?2:0);
+  assert.equal(noahAlive(n),n.choices.dose==='noah');
+  assert(ending(n,true).mara.includes('Ben'));
+  assert(ending(n,false).people.includes(n.choices.dose==='noah'?'geschwächte':'intakte'));
+}
+const fresh=newNarrative(),selected=choose({...fresh,pending:'care'},'care','clinic');
+assert.deepEqual(fresh,newNarrative(),'Choices cannot mutate a previous state');
+assert.equal(selected.pending,null);assert.equal(choose(selected,'care','scouts'),null);assert.equal(choose(fresh,'care','bad'),null);
+assert(!validNarrative({...fresh,choices:{care:'bad'}}));assert(!validNarrative({...fresh,pending:'__proto__'}));
+assert(CAMPAIGN.slice(0,missionIndex('northForest')).every(m=>!['archive','serum'].includes(m.id)),'Medicine grows out of connected relief work');
+assert.equal(CAMPAIGN.filter(m=>m.id==='archive').length,1,'One relevant original replaces repeated letter errands');
+console.log('PASS: all 288 story combinations, seven meaningful decisions, relief-first pacing, faction allegiances, truce tasks and medical endings.');
+
+let los=true,hurt=0,moves=0,zombieDamage=0;const scene=new THREE.Scene(),player=new THREE.Vector3(0,1.7,0),zombie={group:new THREE.Group(),alive:true};zombie.group.position.set(4,0,1);
+const combat=buildFactionCombat(scene,{height:()=>0,blocked:()=>false,path:(_,b)=>[{x:b.x,z:b.z}],move:(p,t,s,dt)=>{moves++;p.add(t.clone().sub(p).normalize().multiplyScalar(s*dt));return true;},visible:()=>los,obstacles:()=>[],player:()=>player,hurt:d=>hurt+=d,zombies:()=>[],hurtZombie:(_,d)=>zombieDamage+=d,noise:()=>{},sound:()=>{},load:()=>new Promise(()=>{}),friendlyFire:()=>{}});
+const fighter=(id,faction,side,x,z)=>({id,faction,side,x,z,health:100,cooldown:0,encounter:'rest:3',name:'Test'});
+combat.restore([fighter('a','union','ally',-7,0),fighter('b','wardens','hostile',7,0)]);
+for(let t=0;t<40;t++)combat.tick(.1);
+assert(combat.snapshot().every(f=>f.health<100),'Opposing humans exchange real rifle damage');assert.equal(hurt,0,'Allied guards absorb the frontline pressure');
+const snap=combat.snapshot();combat.restore(snap);assert.deepEqual(combat.snapshot(),snap,'Health, positions, allegiance and firing timers round-trip');
+combat.clear();combat.restore([fighter('c','cinder','hostile',8,0)]);for(let t=0;t<30;t++)combat.tick(.1);assert(hurt>0,'Hostile rifles damage the player');
+hurt=0;los=false;for(let t=0;t<30;t++)combat.tick(.1);assert.equal(hurt,0,'Walls block rifle damage');assert(moves>0,'Blocked riflemen seek a route instead of attacking through walls');
+combat.clear();los=true;
+const threeWay=buildFactionCombat(scene,{height:()=>0,blocked:()=>false,path:(_,b)=>[b],move:()=>false,visible:()=>true,obstacles:()=>[],player:()=>player,hurt:()=>{},zombies:()=>[zombie],hurtZombie:(_,d)=>zombieDamage+=d,noise:()=>{},sound:()=>{},load:()=>new Promise(()=>{}),friendlyFire:()=>{}});
+threeWay.restore([fighter('d','union','ally',-7,0)]);for(let t=0;t<30;t++)threeWay.tick(.1);assert(zombieDamage>0,'Human guards also defend against infected');zombie.group.position.set(-2,0,1);assert(threeWay.prey(zombie.group.position),'Zombies can select a nearby human combatant');
+threeWay.clear();console.log('PASS: reciprocal human rifle combat, player damage, line of sight, route finding, saved fighters and defense against infected.');

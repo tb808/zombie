@@ -4,6 +4,9 @@ import { WORLD, WEAPONS, ZOMBIES, type WeaponKind, type ZombieKind, type Brain, 
 import { ITEMS, type Inventory } from './world.ts';
 import { newInventoryLayout, validInventoryLayout, type InventoryLayout } from './inventory.ts';
 import { STORY_ACTIVITIES, type ActivityStates, type ActivityMissionId } from './storyActivities.ts';
+import { newNarrative, validNarrative, type NarrativeState } from './narrative.ts';
+import { resolveActivity } from './storyNarrative.ts';
+import type { SavedFighter } from './factionCombat.ts';
 
 export const SAVE_KEY = 'nachtwache.save.v1';
 export type PlayerProgress = {
@@ -11,13 +14,13 @@ export type PlayerProgress = {
   boosted:number;repaired:boolean;thirst:number;infection:number;protection:number;powerQuest:number;benQuest:number;
   evidence:string[];visited:string[];discovered:number[];keycard:boolean;elapsed:number;hasMap:boolean;
   weapon:WeaponKind;arsenal:Record<WeaponKind,{owned:boolean;ammo:number;reserve:number}>;
-  houses:Record<string,HouseState>;respawn:string|null;learned:string[];talkedTo:string[];activities:ActivityStates;
+  houses:Record<string,HouseState>;respawn:string|null;learned:string[];talkedTo:string[];activities:ActivityStates;narrative:NarrativeState;
 };
 export type SavedConversation = {speaker:string;lines:string[];index:number;complete:CampaignId|null;activity?:{mission:ActivityMissionId;step:number}|null};
-export const PROGRESS_KEYS = ['health','stamina','stage','kills','timer','battery','inventory','inventoryLayout','boosted','repaired','thirst','infection','protection','powerQuest','benQuest','evidence','visited','discovered','keycard','elapsed','hasMap','weapon','arsenal','houses','respawn','learned','talkedTo','activities'] as const;
+export const PROGRESS_KEYS = ['health','stamina','stage','kills','timer','battery','inventory','inventoryLayout','boosted','repaired','thirst','infection','protection','powerQuest','benQuest','evidence','visited','discovered','keycard','elapsed','hasMap','weapon','arsenal','houses','respawn','learned','talkedTo','activities','narrative'] as const;
 export const pickProgress = (p:PlayerProgress):PlayerProgress => Object.fromEntries(PROGRESS_KEYS.map(key=>[key,p[key]])) as PlayerProgress;
 export type GameSave = {
-  version:1;revision:2;savedAt:number;mission:CampaignId;phase:'playing'|'dead'|'won';progress:PlayerProgress;
+  version:1;revision:2;savedAt:number;mission:CampaignId;phase:'playing'|'dead'|'won';progress:PlayerProgress;fighters:SavedFighter[];
   player:{x:number;z:number;yaw:number;pitch:number};noah:{x:number;z:number};
   loot:{key:string;remaining:number}[];doors:string[];gates:string[];
   enemies:{kind:ZombieKind;health:number;x:number;z:number;yaw:number;brain:Brain;encounter?:string}[];
@@ -82,11 +85,19 @@ export function parseSave(raw:string|null,manifest:Manifest):GameSave|null {
       ...(Number(p.benQuest)>=3||p.evidence.includes('ben')?['ben']:[]),
     ];
     if(!strings(p.talkedTo,100))return null;
+    const oldNarrative=p.narrative===undefined;
+    if(oldNarrative)p.narrative=newNarrative();
+    if(!validNarrative(p.narrative))return null;
     if(p.activities===undefined)p.activities={};
     if(!record(p.activities)||Object.keys(p.activities).length>STORY_ACTIVITIES.length)return null;
     for(const [id,a] of Object.entries(p.activities)){
-      const mission=STORY_ACTIVITIES.find(m=>m.id===id);
+      const original=STORY_ACTIVITIES.find(m=>m.id===id),mission=original?resolveActivity(original,p.narrative):undefined;
+      if(oldNarrative&&record(a)&&id===s.mission&&['industrial','brueckenfeld'].includes(id)&&Number(a.step)>=1){a.step=1;a.started=false;a.timer=0;a.wave=0;}
       if(!mission||!record(a)||!integer(a.step,0,mission.steps.length)||typeof a.started!=='boolean'||!number(a.timer,0,60)||!integer(a.wave,0,2)||a.actor!==null&&!point(a.actor))return null;
+    }
+    if(p.narrative.pending){
+      const pending=p.narrative.pending,mission=STORY_ACTIVITIES.find(m=>m.id===s.mission),state=p.activities[String(s.mission)];
+      if(pending==='dose'?s.mission!=='serum':!mission||!record(state)||resolveActivity(mission,p.narrative).steps[Number(state.step)]?.choice!==pending)return null;
     }
     if(!Array.isArray(p.discovered)||p.discovered.some(n=>!integer(n,0,4)))return null;
     if(!record(p.inventory)||!record(p.arsenal)||!record(p.houses))return null;
@@ -114,7 +125,7 @@ export function parseSave(raw:string|null,manifest:Manifest):GameSave|null {
     const brainStates=['idle','wander','notice','chase','investigate','search','attack','recover','hit','fall','rise','feed','dead'];
     for(const e of s.enemies){
       if(!record(e)||!(String(e.kind) in ZOMBIES)||!number(e.health,.001,ZOMBIES[e.kind as ZombieKind].health)||!point(e)||!number(e.yaw,-1e9,1e9))return null;
-      if(e.encounter!==undefined&&(typeof e.encounter!=='string'||!STORY_ACTIVITIES.some(m=>m.steps.some((_,i)=>e.encounter===`${m.id}:${i}`))))return null;
+      if(e.encounter!==undefined&&(typeof e.encounter!=='string'||!STORY_ACTIVITIES.some(m=>resolveActivity(m,p.narrative as NarrativeState).steps.some((_,i)=>e.encounter===`${m.id}:${i}`))))return null;
       const b=e.brain;if(!record(b)||!brainStates.includes(String(b.state))||!number(b.time,-1e6,1e6)||!number(b.memory)||!number(b.phase,-1e6,1e6)||typeof b.attackLanded!=='boolean')return null;
       for(const key of ['lastKnown','home','target']){const pt=b[key];if(!record(pt)||!number(pt.x,WORLD.minX-100,WORLD.maxX+100)||!number(pt.z,WORLD.minZ-100,WORLD.maxZ+100))return null;}
     }
@@ -124,7 +135,14 @@ export function parseSave(raw:string|null,manifest:Manifest):GameSave|null {
     if(s.conversation!==null){
       const c=s.conversation;if(!record(c)||typeof c.speaker!=='string'||c.speaker.length>200||!Array.isArray(c.lines)||!c.lines.length||c.lines.length>64||c.lines.some(line=>typeof line!=='string'||line.length>1000)||!integer(c.index,0,c.lines.length-1))return null;
       if(c.complete!==null&&!CAMPAIGN.some(m=>m.id===c.complete))return null;
-      if(c.activity!==undefined&&c.activity!==null){const a=c.activity;if(!record(a)||!STORY_ACTIVITIES.some(m=>m.id===a.mission&&integer(a.step,0,m.steps.length-1)))return null;}
+      if(c.activity!==undefined&&c.activity!==null){const a=c.activity;if(!record(a)||!STORY_ACTIVITIES.some(m=>m.id===a.mission&&integer(a.step,0,resolveActivity(m,p.narrative as NarrativeState).steps.length-1)))return null;}
+    }
+    if(s.fighters===undefined)s.fighters=[];
+    if(!Array.isArray(s.fighters)||s.fighters.length>24)return null;
+    const ids=new Set<string>();
+    for(const f of s.fighters){
+      if(!record(f)||typeof f.id!=='string'||f.id.length>200||ids.has(f.id)||!['union','wardens','cinder'].includes(String(f.faction))||!['ally','hostile'].includes(String(f.side))||!point(f)||!number(f.health,.001,100)||!number(f.cooldown,0,5)||typeof f.name!=='string'||f.name.length>60||typeof f.encounter!=='string'||!(/^(?:tower|defend|(?:[a-zA-Z]+):\d+)$/.test(f.encounter)))return null;
+      ids.add(f.id);
     }
     if(s.phase==='dead'&&p.health!==0||s.phase==='playing'&&p.health===0||s.phase==='won'&&(s.mission!=='defend'||p.timer!==0))return null;
     return s as unknown as GameSave;

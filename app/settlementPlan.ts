@@ -7,6 +7,7 @@ import { BRIDGES, PARKED_CARS, REGION_LOOT, REGION_POIS, REGION_SIGNS, ROAD_LINE
 import { terrainHeight } from './regionTerrain.ts';
 import { CAMPAIGN } from './campaign.ts';
 import { STORY_ACTIVITIES } from './storyActivities.ts';
+import { STORY_EXTRA_POINTS } from './storyNarrative.ts';
 import { LEGACY_PARKING, STREET_LINES, STREET_SEGMENTS, footprintStreetClearance, sidewalkWidth, streetClearance } from './streetPlan.ts';
 import { LEGACY_FOUNDATIONS } from './legacyLayout.ts';
 
@@ -32,7 +33,7 @@ export const SETTLEMENT_ROADS=STREET_SEGMENTS;
 export const dressingRoadClearance=streetClearance;
 const entrancePads=STRUCTURES.flatMap(b=>[-1,1].map(side=>{const c=Math.cos(b.rotation),s=Math.sin(b.rotation);return {ownerId:b.id,x:b.x+side*(b.depth/2+2)*s,z:b.z+side*(b.depth/2+2)*c,hx:Math.abs(c)*1.2+Math.abs(s)*2,hz:Math.abs(s)*1.2+Math.abs(c)*2};}));
 export const DRESSING_RESERVED:Point[]=[...REGION_LOOT,...CITY_LOOT,...HOUSE_LOOT,...LOOT,...NOTES,...DISCOVERIES,...CITY_NPCS,
-  ...CAMPAIGN,...STORY_ACTIVITIES.flatMap(m=>[...m.steps,...(m.actor?[m.actor]:[])]),
+  ...CAMPAIGN,...STORY_EXTRA_POINTS,...STORY_ACTIVITIES.flatMap(m=>[...m.steps,...(m.actor?[m.actor]:[])]),
   {x:-61,z:-35},{x:-53,z:-37},{x:-49,z:-34},{x:-19,z:-4},{x:17,z:15},{x:48,z:23},{x:66,z:-25},{x:120,z:90},
 ];
 function fixedFootprints():Obstacle[]{return [

@@ -13,14 +13,14 @@ async(page)=>{
       try{g.teleport(66+Math.cos(i*.15)*6,-25+Math.sin(i*.15)*6);}catch{/* Dodge along the remaining clear path. */}
       if(s.ammo<=0){g.reload();return;}
       const e=g.state().enemies.filter(e=>e.alive&&e.visible).sort((a,b)=>Math.hypot(a.x-s.position[0],a.z-s.position[2])-Math.hypot(b.x-s.position[0],b.z-s.position[2]))[0];
-      if(e){g.aim(...e.head);g.shoot();}
+      const f=g.factions().find(f=>f.alive&&f.side==='hostile'&&f.visible);if(f){g.aim(...f.head);g.shoot();}else if(e){g.aim(...e.head);g.shoot();}
     },i);await page.waitForTimeout(250);
   }
-  await page.getByRole('heading',{name:'Ihr habt es geschafft.',exact:true}).waitFor();
+  await page.locator('.story-ending h2').waitFor();
   const won=await page.evaluate(()=>{const g=window.__nachtwache;const s=g.state();g.menu();return s;});
   await page.reload();await page.waitForFunction(()=>window.__nachtwache&&!document.querySelector('.start-actions .secondary')?.disabled,{}, {timeout:90000});
   await page.getByRole('button',{name:/^WEITERSPIELEN/}).click();
-  await page.getByRole('heading',{name:'Ihr habt es geschafft.',exact:true}).waitFor();
+  await page.locator('.story-ending h2').waitFor();
   await page.screenshot({path:'output/playwright/story-ending.png'});
   check((await page.evaluate(()=>window.__nachtwache.state())).timer===0,'Victory survives reload without replaying the final wave');
   return {health:won.health,kills:won.kills,passed:['live final defense','connected story ending','victory save across page reload']};

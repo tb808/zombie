@@ -1,10 +1,12 @@
 import { STRUCTURES } from './regionPlan.ts';
 import { REGIONAL_SHELTERS } from './shelterSites.ts';
 import type { Point } from './survival.ts';
+import { NIGHT_HUNTER_WARNING, NIGHT_HUNTER_ADVICE } from './dialogue.ts';
+import type { ChoiceId, Faction } from './narrative.ts';
 
-export type ActivityKind = 'talk'|'collect'|'treat'|'deliver'|'repair'|'switch'|'clear'|'defend'|'escort'|'shelter';
+export type ActivityKind = 'talk'|'collect'|'treat'|'deliver'|'repair'|'switch'|'clear'|'defend'|'escort'|'shelter'|'choice'|'war';
 export type ActivityMissionId = 'seecamp'|'jaeger'|'wiesenhof'|'oldRanger'|'oldMarket'|'westMeadows'|'birkenhof'|'muehlenhof'|'kornweiler'|'church'|'northForest'|'radar'|'fortRoute'|'research'|'aschenrode'|'rest'|'industrial'|'cityCentre'|'suburbs'|'fuelRoute'|'brueckenfeld'|'powerRoute'|'quarry';
-export type ActivityStep = Point & {kind:ActivityKind;label:string;lines?:readonly string[];prop?:'medicine'|'tools'|'food'|'battery'|'fuel'|'module'|'sample'|'pump'|'radio'|'cooler'|'switch';seconds?:number;count?:number;house?:string};
+export type ActivityStep = Point & {kind:ActivityKind;label:string;lines?:readonly string[];prop?:'medicine'|'tools'|'food'|'battery'|'fuel'|'module'|'sample'|'pump'|'radio'|'cooler'|'switch';seconds?:number;count?:number;house?:string;choice?:ChoiceId;speaker?:string;reveal?:string;opposition?:Faction;allies?:Faction[]};
 export type ActivityDefinition = Point & {id:ActivityMissionId;chapter:number;place:string;title:string;reason:string;area?:string;actor?:Point&{name:string;skin:string};steps:readonly ActivityStep[];reward?:{ammo?:number;medkit?:number;water?:number;ration?:number};secures?:string;lines:readonly string[]};
 export type ActivityProgress = {step:number;started:boolean;timer:number;wave:number;actor:Point|null};
 export type ActivityStates = Record<string,ActivityProgress>;
@@ -61,7 +63,7 @@ export const STORY_ACTIVITIES:readonly ActivityDefinition[]=[
   {id:'kornweiler',chapter:2,area:'VILLAGE_01',place:'KORNWEILER',...outside('kornweiler'),title:'Mach Kornweiler zum Zufluchtsort',reason:'Essen und Wasser sind unterwegs. Hanna braucht ein gesichertes Gebäude, in dem die Menschen bleiben können.',actor:person('HANNA',outside('kornweiler'),'survivorFemaleA'),reward:{ammo:30,medkit:1},secures:'VILLAGE_01',steps:[
     talk('Besprich den Schutz des Dorfes mit Hanna',outside('kornweiler'),'Die Vorräte von den Höfen retten uns den Tag. Jetzt brauchen wir einen sicheren Schlafplatz.','Räume das Gemeindehaus, vernagle die Fenster und aktiviere das Bett. Material liegt vor dem Hof. Ein bereits gesichertes Haus zählt natürlich auch.'),
     step('shelter','Sichere und aktiviere das Gemeindehaus',{x:house('kornweiler').x,z:house('kornweiler').z+1},{house:'kornweiler'}),
-    talk('Melde Hanna den sicheren Rückzugsort',outside('kornweiler'),'Jetzt können die Leute hier schlafen. An der Kirche wartet Emil mit einer Nachzüglerin. Helft ihnen, den Sammelpunkt zu erreichen.')],lines:['Kornweiler besitzt einen aktivierten Unterschlupf und erhält Versorgung.']},
+    talk('Melde Hanna den sicheren Rückzugsort',outside('kornweiler'),'Jetzt können die Leute hier schlafen. An der Kirche wartet Emil mit einer Nachzüglerin. Helft ihnen, den Sammelpunkt zu erreichen.',NIGHT_HUNTER_WARNING,NIGHT_HUNTER_ADVICE)],lines:['Kornweiler besitzt einen aktivierten Unterschlupf und erhält Versorgung.',NIGHT_HUNTER_WARNING,NIGHT_HUNTER_ADVICE]},
   {id:'church',chapter:2,place:'ST. GEORG · KORNWEILER',x:-740,z:-600,title:'Bring die letzte Nachzüglerin in Sicherheit',reason:'Emil hat Lina an der Kirche gefunden. Sie braucht Begleitung zum geschützten Sammelpunkt.',actor:person('LINA',{x:-740,z:-600},'survivorFemaleA'),reward:{ammo:18,medkit:1},steps:[
     talk('Hole Lina im Kirchhof ab',{x:-740,z:-600},'Emil wartet hinter der Kirche. Ich komme mit dir. Bleib bitte in meiner Nähe.'),
     escort('Begleite Lina zur Kirchenunterkunft',room('church')),
@@ -71,7 +73,7 @@ export const STORY_ACTIVITIES:readonly ActivityDefinition[]=[
     operate('repair','Schließe das Batteriemodul am Relais an',outside('north-forest'),'radio'),
     operate('switch','Schalte das Relais auf Kanal 12',outside('north-forest'),'switch','Weber · Funk: Ich höre euch! Im Außenlabor könnte noch eine stabile Probe sein. Die Radarstation kann die Sperre des Forts lösen.','Mara: Zuerst eine sichere Verbindung. Ivo am Radar braucht Schutz, bis der Kanal steht.')],lines:['Das Relais verbindet die Dörfer. Weber meldet einen möglichen medizinischen Durchbruch.']},
   {id:'radar',chapter:2,place:'RADARSTATION 12',x:-780,z:-850,title:'Halte Ivos Funkverbindung offen',reason:'Ivo muss Webers Kanal entschlüsseln. Der Sender ist laut; du und Noah sichern ihn während der Arbeit.',actor:person('IVO',{x:-780,z:-850}),reward:{ammo:30,medkit:1},steps:[
-    talk('Sprich mit Ivo am Sender',{x:-780,z:-850},'Ich brauche einen Moment am Sender. Bleib in der Nähe. Wenn sie direkt bei mir stehen, kann ich nicht weiterarbeiten.'),
+    talk('Sprich mit Ivo am Sender',{x:-780,z:-850},'Ich brauche einen Moment am Sender. Bleib in der Nähe. Wenn sie direkt bei mir stehen, kann ich nicht weiterarbeiten.','Hier oben kommen nachts auch Nachtjäger. Ihre leuchtenden Rippen und Schulterdornen siehst du schon zwischen den Bäumen. Geh bei Dunkelheit zum UV-Licht zurück.'),
     defend('Decke Ivo, bis Webers Kanal steht',{x:-780,z:-850},22),
     talk('Nimm Webers Antwort entgegen',{x:-780,z:-850},'Weber spricht von einer stabilen Dosis, aber noch ist nichts bewiesen. Ralf im Fort hat passende medizinische Kühlmodule.','Helft ihm mit dem Sanitätslager. Dann kann er euch Material für das Außenlabor geben.')],lines:['Webers Kanal ist frei. Im Fort liegt medizinische Ausrüstung für einen Labortest.']},
   {id:'fortRoute',chapter:2,area:'MILITARY_BASE',place:'FORT EICHE',...outside('fort'),title:'Hilf Ralf im Sanitätslager',reason:'Ralf teilt seine Ausrüstung, wenn die eingeschlossene Sanitätsfracht geborgen werden kann.',actor:person('RALF',outside('fort')),reward:{ammo:36,medkit:2},steps:[

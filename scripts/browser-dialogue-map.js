@@ -36,8 +36,8 @@ async (page) => {
   const map = page.locator('.map-viewport svg');
   await map.waitFor();
   check(await map.getAttribute('viewBox') === '-1200 -1000 2400 2000', 'Overview covers all playable world bounds');
+  check(await map.locator('[data-map-label="VILLAGE_04"]').count() === 1, 'Unvisited settlements are labelled in the overview');
   await page.getByRole('button', { name: 'Mein Standort' }).click();
-  check(await map.locator('text').filter({ hasText: 'POLIZEI' }).count() === 1, 'Unvisited places are labelled');
   await page.getByRole('button', { name: 'Ganze Karte', exact: true }).click();
   const beforeZoom = await map.getAttribute('viewBox');
   await page.getByRole('button', { name: 'Karte vergrößern' }).click();

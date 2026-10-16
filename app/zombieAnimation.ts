@@ -43,6 +43,12 @@ export class ZombieAnimator {
     joint('LeftArm', -.35 - strike * 1.1 + sway * .14, 0, -.12);
     joint('RightArm', -.42 - strike * 1.35 - sway * .17, 0, .13);
     joint('LeftForeArm', -.18 - strike * .5); joint('RightForeArm', -.25 - strike * .6);
+    if(this.kind==='nightHunter') {
+      joint('Spine',.13*this.blend);
+      joint('LeftArm',-.2-strike*.2,0,-.22);
+      joint('RightArm',-.2-strike*.2,0,.22);
+      joint('LeftForeArm',-.25);joint('RightForeArm',-.25);
+    }
     if (this.prone > .02) {
       joint('LeftUpLeg', .2, 0, .2); joint('RightUpLeg', -.15, 0, -.2);
       joint('LeftLeg', .55 + sway * .15); joint('RightLeg', .8 - sway * .15);

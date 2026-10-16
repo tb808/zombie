@@ -19,6 +19,7 @@ async (page) => {
   check(await map.locator('[data-map-npc="ranger-guard"]').count() === 1, 'Known guard is marked');
   check(await map.locator('[data-map-npc="weber"]').count() === 0, 'Unmet NPCs are not revealed');
   check(await map.locator('[data-map-refuge="fichtenau-camp"]').count() === 1, 'Guarded camp has a secured marker');
+  await page.locator('.map-directory-details>summary').click();
   const contacts = page.getByRole('region', { name: 'Bekannte Gesprächspartner', exact: true });
   await contacts.getByRole('button', { name: /Mara/ }).click();
   const [vx, vz, vw, vh] = (await map.getAttribute('viewBox')).split(' ').map(Number);
@@ -50,6 +51,7 @@ async (page) => {
   const marker = map.locator(`[data-map-house="${house.id}"]`);
   check(await marker.getAttribute('data-secured') === 'true', 'Claimed safehouse is marked secured');
   check((await marker.getAttribute('aria-label')).includes('Respawnpunkt'), 'Respawn remains identifiable');
+  await page.locator('.map-directory-details>summary').click();
   await page.getByRole('region', { name: 'Gesicherte Unterschlüpfe', exact: true }).getByRole('button', { name: new RegExp(house.name) }).click();
   await page.screenshot({ path: 'output/playwright/map-secured-safehouse.png' });
   await page.keyboard.press('m');

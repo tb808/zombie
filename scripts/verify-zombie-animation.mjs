@@ -4,11 +4,20 @@ import {AnimationMixer,Box3,Vector3} from 'three';
 import {FBXLoader} from 'three/examples/jsm/loaders/FBXLoader.js';
 import {clone} from 'three/examples/jsm/utils/SkeletonUtils.js';
 import {ZombieAnimator} from '../app/zombieAnimation.ts';
-import {makeBrain,transition} from '../app/survival.ts';
+import {makeBrain,transition,ZOMBIES} from '../app/survival.ts';
+import {decorateNightHunter} from '../app/zombieAppearance.ts';
 const read=name=>{const b=readFileSync(`public/models/kenney/characters/${name}.fbx`);return new FBXLoader().parse(b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength),'');};
 const base=read('characterMedium'),idle=read('animations/idle').animations.find(c=>c.name.endsWith('|Idle')),run=read('animations/run').animations.find(c=>c.name.endsWith('|Run'));
-for(const kind of ['walker','crawler','tank','runner','infected']){
+for(const kind of Object.keys(ZOMBIES)){
  const model=clone(base);const size=new Box3().setFromObject(model).getSize(new Vector3());model.scale.setScalar(1.82/size.y);model.updateMatrixWorld(true);model.position.y-=new Box3().setFromObject(model).min.y;
+ if(kind==='nightHunter'){
+  decorateNightHunter(model);const accents=[];model.traverse(o=>{if(o.userData.ownedEnemyGeometry)accents.push(o);});
+  assert.equal(accents.filter(o=>o.name==='night-hunter-eye').length,2);
+  assert.equal(accents.filter(o=>o.name==='night-hunter-thorn').length,6);
+  assert.equal(accents.filter(o=>o.name==='night-hunter-claw').length,6);
+  assert(accents.every(o=>o.parent.parent.isBone),'Distinctive marks follow the animated bones');
+  assert(accents.filter(o=>o.name==='night-hunter-rib').every(o=>o.material.emissiveIntensity>=2),'Ribs remain visible at night without lights');
+ }
  const mixer=new AnimationMixer(model),actions={idle:mixer.clipAction(idle.clone()),run:mixer.clipAction(run.clone())};const animator=new ZombieAnimator(model,mixer,actions,kind,2.4),brain=makeBrain({x:0,z:0},0);
  for(let i=0;i<120;i++)animator.update(1/60,brain,0,i/60);
  model.updateMatrixWorld(true);model.traverse(o=>{if(o.isSkinnedMesh)o.computeBoundingBox();});const bounds=new Box3().setFromObject(model);

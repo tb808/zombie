@@ -78,7 +78,9 @@ Auf der Karte markieren grüne Haus- und Schildsymbole gesicherte Safehouses und
 
 Die Hauptstory führt in **49 Missionen durch vier Kapitel**. Zuerst hilfst du Menschen und baust Rückzugsorte auf. Über Versorgung und gemeinsame Einsätze entsteht der Kontakt zu Weber; erst ein Labortest bestätigt die Chance auf ein Heilmittel. HUD, Karte und Journal zeigen die aktuelle Teilaufgabe und ihren Zweck. Bens Suche bleibt ein freiwilliger Nebenauftrag.
 
-**Ein Licht in Fichtenau:** Versorge Jonas, lerne Ausrüstung und Kampf kennen, bringe Maras Funkgerät zum Laufen und sichere die Forstunterkunft. **Niemand bleibt zurück:** Durchsuche eine Campinghütte nach Medizin, behandle Eva, befreie Tom, begleite Oskar und sichere den Markt. **Gemeinsam wieder aufbauen:** Berge Lebensmittel, repariere mit Mila die Wasserpumpe und sichere Kornweiler. Schütze Funker und Mechaniker, rette Gestrandete und untersuche mit Noah eine Probe im Außenlabor. **Eine Chance für alle:** Versorge eine Krankenstation, baue mit Jo die Kühlung auf, schalte das Umspannwerk zu und berge den Behälter mit Otto. Danach folgen C-07 und die gemeinsame Endverteidigung. Die 23 ehemaligen Briefstationen enthalten jetzt 81 Teilaufgaben, zehn Handlungsarten und 17 zusätzliche NPCs. Arbeitszeiten, Begleiterwege und Sicherungen haben echte Abschlussbedingungen. Erfolgreiche Hilfseinsätze verringern die reguläre Gegnerverstärkung im jeweiligen Gebiet.
+**Ein Licht in Fichtenau:** Versorge Jonas, lerne Ausrüstung und Kampf kennen, bringe Maras Funkgerät zum Laufen und sichere die Forstunterkunft. **Niemand bleibt zurück:** Durchsuche eine Campinghütte nach Medizin, behandle Eva, befreie Tom, begleite Oskar und sichere den Markt. **Was unsere Versprechen kosten:** Berge Lebensmittel, repariere mit Mila die Wasserpumpe und sichere Kornweiler. Schütze Funker und Mechaniker, rette Gestrandete und untersuche mit Noah eine Probe im Außenlabor. **Ein Morgen nach dem Krieg:** Versorge eine Krankenstation, baue mit Jo die Kühlung auf, schalte das Umspannwerk zu und berge den Behälter mit Otto. Danach folgen C-07 und die gemeinsame Endverteidigung. Die 23 ehemaligen Briefstationen enthalten je nach Entscheidungen 92–94 Teilaufgaben, zwölf Handlungsarten und 17 zusätzliche NPCs. Arbeitszeiten, Begleiterwege und Sicherungen haben echte Abschlussbedingungen. Erfolgreiche Hilfseinsätze verringern die reguläre Gegnerverstärkung im jeweiligen Gebiet.
+
+Sieben Entscheidungen verändern die folgenden Aufgaben, medizinische Unterstützung, Fraktionsgegner und das Ende. Eva, Hanna, Ralf und Noah erklären die persönlichen Folgen. Der Bürgerbund und die Eichenwache geraten erst nach den ersten Hilfstouren und dem Labortest in einen offenen Konflikt. Menschliche Kämpfer nutzen Gewehre, Sichtkontakt und Wegsuche; Verbündete und Infizierte können einander bekämpfen. Das Journal hält die gewählten Zusagen fest. Die fortlaufende Story bleibt auf derselben verständlichen Route durch alle Orte. Briefe sind überwiegend freiwillige Hintergrundgeschichten; der Hauptweg benötigt nur ein zusammenhängendes Archivprotokoll.
 
 Am Start stehen **Weiterspielen** und **Neues Spiel**. Der Spielstand wird automatisch alle drei Sekunden sowie bei Gesprächen, Pausen, Schlafen, beim Verlassen und bei Tod oder Sieg lokal in diesem Browser gespeichert. Er enthält Quest und Gesprächsposition, Spieler und Noah, Uhrzeit, Gesundheit, Waffen und Munition, Inventar, genommenes Loot, Gegner, Türen, Tore, Barrikaden und Respawnpunkt. Weiterspielen lädt auch nach einem Neuladen diese Welt; neues Spiel ersetzt den bisherigen Durchgang. Beschädigte oder zur Spielwelt inkompatible Daten deaktivieren Weiterspielen mit einem Hinweis und verhindern kein neues Spiel. Es gibt einen lokalen Spielstand, keine Synchronisierung zwischen Browsern oder Geräten.
 
@@ -128,6 +130,8 @@ Erkundung liefert Ausrüstung, Medizin und Zusammenhänge. Ein neues Spiel setzt
 
 Wandler sind langsam. Hetzer schließen schnell auf; Brecher sind groß, ausdauernd und schlagen hart zu. Kriecher haben niedrige Trefferzonen. Fiebernde reagieren schnell und bewegen sich unruhiger. Wahrnehmung, Verfolgung, Geräuschuntersuchung, Suche, Angriff, Erholung, Treffer, Fallen, Aufstehen und Tod sind getrennte Zustände. Ohne Sichtkontakt verfolgen Gegner die zuletzt bekannte Position. Schüsse, Sprinten, Fackeln und Alarme haben unterschiedliche Hörreichweiten.
 
+Ab Kapitel 3 können zwischen **19:00 und 05:30 Uhr** seltene **Nachtjäger** in Gebieten der Gefahrenstufen 2–3 erscheinen, unter anderem bei Radarstation, Fort, Außenlabor, Aschenrode, Industrie und Oststadt. Die ersten Orte bleiben auch bei späteren Besuchen frei von ihren Spawns. Höchstens zwei sind gleichzeitig aktiv. Mit 560 Lebenspunkten, 5,8 m/s Grundtempo und 38 Grundschaden übertreffen sie alle regulären Typen; nachts wirken zusätzlich die üblichen Nachtboni. Helle Schulterdornen, lange Klauen, orange leuchtende Augen und Rippen und eine geduckte Laufhaltung unterscheiden sie sichtbar. Körpertreffer werfen sie nicht um; Kopftreffer unterbrechen kurz. UV schützt weiterhin, und bei Tagesanbruch oder Schlaf bis zum Morgen verschwinden sie ohne Kill-Gutschrift. Hanna warnt vor der Nordroute; Ivo und später Lenz greifen die Gefahr auf. Maras Einführung enthält diese Warnung noch nicht.
+
 Angriffe kündigen sich sichtbar an. Schaden entsteht erst beim Treffermoment und lässt sich durch Abstand oder Deckung vermeiden. Kopftreffer, Schrot aus kurzer Entfernung und Axtschläge unterbrechen beziehungsweise werfen normale Gegner um. Brecher widerstehen dem Stagger. Axtschläge benötigen zwanzig Ausdauer und treffen nur in einem begrenzten Winkel und innerhalb von 2,6 Metern.
 
 Pistole (9 mm), Schrotflinte (12/70) und Karabiner (5.56 mm) haben eigene Magazine und Vorräte. Wasser erhält die Ausdauerregeneration. Infektionen ab 75 Prozent zehren an der Gesundheit; Antibiotika behandeln sie. Westen absorbieren 55 Prozent des Schadens, bis ihr Schutz aufgebraucht ist. Unnötige Heilung verbraucht keine Gegenstände; überzähliger Loot bleibt liegen.
@@ -153,6 +157,8 @@ Pistole (9 mm), Schrotflinte (12/70) und Karabiner (5.56 mm) haben eigene Magazi
 - `app/environment.ts`: Weltzeit, Tageslicht, Unterschlüpfe und Abstandsprüfung.
 - `app/nightSurvival.ts`: Nachtstärke, Gegnerverteilung, UV-Zeiten und bedingter Schutz.
 - `app/shelterSites.ts`: regional verteilte Safehouses, Startpunkte und freigehaltene Bauflächen.
+- `app/narrative.ts`, `app/storyNarrative.ts`: gespeicherte Entscheidungen, abgeleitete Missionsvarianten, vorbereitete Wendungen und medizinische/politische Enden.
+- `app/factionCombat.ts`: menschliche Gewehrkämpfer, Verbündete, Treffer, Deckungswege und gespeicherte Kampfzustände.
 - `app/storyActivities.ts`: konkrete Hilfseinsätze, Teilaufgaben, NPCs, Arbeitsplätze und Belohnungen; `regionalStory.ts` erhält die bestehenden Importnamen.
 - `app/activityScene.ts`: sichtbare Sanitätskoffer, Versorgungskisten, Werkzeuge, Kühlmodule und betriebsfähige Geräte.
 - `app/safehouseScene.ts`: 22 Tore, echte Tor-Kollision und UV-Leuchten mit begrenzter Sichtweite.
@@ -176,7 +182,7 @@ npm run check:inventory
 npm run build
 ```
 
-Die Prüfungen decodieren 49 Weltmodelle und kontrollieren Animationsbindung, Missionswege, neue Innenräume, Loot-Erreichbarkeit, Türzustände, Sichtkontakt, Geräuschgedächtnis, Angriffszeitpunkte, Ausweichen und Posen aller fünf Gegnertypen. Die Innenraumprüfung kontrolliert beide Eingänge, die Durchgänge zwischen den Räumen, Möbelabstände, alle 24 neuen Vorräte und acht Briefe sowie Texturen und das Zusammenfassen der Geometrie.
+Die Prüfungen decodieren 49 Weltmodelle und kontrollieren Animationsbindung, Missionswege, neue Innenräume, Loot-Erreichbarkeit, Türzustände, Sichtkontakt, Geräuschgedächtnis, Angriffszeitpunkte, Ausweichen und Posen aller sechs Gegnertypen. Die Innenraumprüfung kontrolliert beide Eingänge, die Durchgänge zwischen den Räumen, Möbelabstände, alle 24 neuen Vorräte und acht Briefe sowie Texturen und das Zusammenfassen der Geometrie.
 
 Wiederholbare Browserprüfungen mit laufendem Entwicklungsserver:
 
@@ -201,6 +207,7 @@ npx --yes --package @playwright/cli playwright-cli -s=zombie run-code --filename
 npx --yes --package @playwright/cli playwright-cli -s=zombie run-code --filename scripts/browser-environment.js
 npx --yes --package @playwright/cli playwright-cli -s=zombie run-code --filename scripts/browser-night-survival.js
 npx --yes --package @playwright/cli playwright-cli -s=zombie run-code --filename scripts/browser-night-combat.js
+npx --yes --package @playwright/cli playwright-cli -s=zombie run-code --filename scripts/browser-night-hunter.js
 npx --yes --package @playwright/cli playwright-cli -s=zombie run-code --filename scripts/browser-nature.js
 ```
 

@@ -6,17 +6,20 @@ import { newInventory, LOOT } from '../app/world.ts';
 import { CITY_LOOT } from '../app/city.ts';
 import { REGION_LOOT } from '../app/regionPlan.ts';
 import { parseSave, pickProgress, lootKey } from '../app/saveGame.ts';
+import { newNarrative } from '../app/narrative.ts';
 import { newInventoryLayout, moveInventoryItem } from '../app/inventory.ts';
 
 const manifest={loot:[{key:lootKey('water',-60,-36,0),count:2}],doors:['lab','police'],gates:['lodge']};
 const fresh=()=>({version:1,revision:2,savedAt:Date.now(),mission:'intro',phase:'playing',
-  progress:{health:76.5,stamina:100,stage:0,kills:0,timer:40,battery:83,inventory:newInventory(),inventoryLayout:newInventoryLayout(newInventory(),freshArsenal()),boosted:0,repaired:false,thirst:72,infection:3,protection:0,powerQuest:0,benQuest:0,evidence:[],visited:[],discovered:[],keycard:false,elapsed:24,hasMap:false,weapon:'pistol',arsenal:freshArsenal(),houses:newHouses(),respawn:null,learned:[],talkedTo:['mara','ranger-guard'],activities:{}},
+  progress:{health:76.5,stamina:100,stage:0,kills:0,timer:40,battery:83,inventory:newInventory(),inventoryLayout:newInventoryLayout(newInventory(),freshArsenal()),boosted:0,repaired:false,thirst:72,infection:3,protection:0,powerQuest:0,benQuest:0,evidence:[],visited:[],discovered:[],keycard:false,elapsed:24,hasMap:false,weapon:'pistol',arsenal:freshArsenal(),houses:newHouses(),respawn:null,learned:[],talkedTo:['mara','ranger-guard'],activities:{},narrative:newNarrative()},
   player:{x:-53,z:-37,yaw:-1.45,pitch:-.06},noah:{x:17,z:15},
   loot:[{key:manifest.loot[0].key,remaining:0}],doors:[],gates:[],
   enemies:[{kind:'walker',health:ZOMBIES.walker.health/2,x:-24,z:-2,yaw:1,brain:makeBrain({x:-24,z:-2},.4)}],
-  flares:[],noises:[],conversation:{speaker:'MARA',lines:['Erster Satz','Zweiter Satz'],index:1,complete:'intro'},flashlight:false,reloadLeft:.7,shotCooldown:0,invulnerable:0});
+  fighters:[],flares:[],noises:[],conversation:{speaker:'MARA',lines:['Erster Satz','Zweiter Satz'],index:1,complete:'intro'},flashlight:false,reloadLeft:.7,shotCooldown:0,invulnerable:0});
 const parsed=save=>parseSave(JSON.stringify(save),manifest);
 const original=fresh();assert.deepEqual(parsed(original),original,'Real timestamp, interrupted conversation and reload survive serialization');
+const hunterSave=fresh();hunterSave.enemies[0].kind='nightHunter';hunterSave.enemies[0].health=ZOMBIES.nightHunter.health-85;
+assert.deepEqual(parsed(hunterSave),hunterSave,'Night hunter type, health and brain survive serialization');
 assert.deepEqual(pickProgress({...original.progress,active:true}),original.progress,'Transient runtime fields are not restored');
 for(const mutate of [s=>s.version=2,s=>s.progress.health=-1,s=>s.progress.inventory.water=999,s=>s.player.x=1e9,s=>s.mission='serum',s=>s.loot[0].remaining=3,s=>s.loot=[],s=>s.doors=['unknown'],s=>s.progress.respawn='lodge',s=>s.enemies[0].brain.target.x='bad',s=>s.progress.talkedTo='mara',s=>s.progress.talkedTo=[7],s=>s.conversation.index=2,s=>s.reloadLeft=-.01]){
   const save=fresh();mutate(save);assert.equal(parsed(save),null,'Corrupt or incompatible saves cannot reach the game runtime');
@@ -60,3 +63,14 @@ const recovered=parsed(beforeSlots);assert(recovered);assert.deepEqual(recovered
 assert.deepEqual(recovered.progress.inventoryLayout,newInventoryLayout(beforeSlots.progress.inventory,beforeSlots.progress.arsenal),'Old saves receive movable slots without changing possessions');
 for(const mutate of [p=>p.inventoryLayout=null,p=>p.inventoryLayout.hotbar.push(null),p=>p.inventoryLayout.hotbar[1]='pistol',p=>p.inventoryLayout.hotbar[0]='unknown',p=>p.inventoryLayout.hotbar[0]='rifle',p=>p.inventoryLayout.hotbar[0]=null,p=>p.inventoryLayout.backpack=[]]){const bad=fresh();mutate(bad.progress);assert.equal(parsed(bad),null,'Invalid, missing or duplicated stacks are rejected');}
 console.log('PASS: movable inventory save round-trip, legacy migration and slot validation.');
+
+const undecided=fresh();undecided.mission='seecamp';undecided.progress.stage=missionIndex('seecamp');undecided.conversation=null;
+undecided.progress.activities.seecamp={step:3,started:false,timer:0,wave:0,actor:{x:-405,z:790}};undecided.progress.narrative.pending='care';
+assert.deepEqual(parsed(undecided),undecided,'Pending choice survives without selecting a default');
+const mismatched=structuredClone(undecided);mismatched.progress.narrative.pending='dose';assert.equal(parsed(mismatched),null,'Choice must belong to the current mission');
+const chosen=structuredClone(undecided);chosen.progress.narrative={version:1,choices:{care:'clinic',front:'wardens',pact:'truce'},revealed:['convoy','noah','war','orders'],pending:null};
+chosen.fighters=[{id:'rest:3:1:union:ally:0',faction:'union',side:'ally',x:12,z:16,health:56,cooldown:.85,encounter:'rest:3',name:'Aydin'}];
+assert.deepEqual(parsed(chosen),chosen,'Story decisions, revelations and damaged combatants survive together');
+for(const change of [s=>s.progress.narrative.choices.front='unknown',s=>s.fighters[0].health=101,s=>s.fighters[0].side='unknown',s=>s.fighters.push({...s.fighters[0]})]){const bad=structuredClone(chosen);change(bad);assert.equal(parsed(bad),null);}
+const beforeStory=fresh();delete beforeStory.progress.narrative;delete beforeStory.fighters;assert.deepEqual(parsed(beforeStory).progress.narrative,newNarrative());assert.deepEqual(parsed(beforeStory).fighters,[]);
+console.log('PASS: pending decisions, branching consequences, faction combat saves, corrupt choice/fighter rejection and legacy story migration.');

@@ -25,7 +25,8 @@
     "check:nature": "node --experimental-strip-types scripts/verify-terrain-nature.mjs && node --experimental-strip-types scripts/verify-wilderness.mjs",
     "check:settlements": "node --experimental-strip-types scripts/verify-settlements.mjs",
     "check:layout": "node --experimental-strip-types scripts/verify-map-layout.mjs",
-    "check:inventory": "node --experimental-strip-types scripts/verify-inventory.mjs"
+    "check:inventory": "node --experimental-strip-types scripts/verify-inventory.mjs",
+    "check:story": "node --experimental-strip-types scripts/verify-narrative.mjs"
   },
   "dependencies": {
     "next": "16.2.6",

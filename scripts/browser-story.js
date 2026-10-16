@@ -13,13 +13,20 @@ async(page)=>{
     if(s.thirst<35&&s.inventory.water)g.consume('water');
     if(s.ammo<=0){g.reload();return;}
     const e=s.enemies.filter(e=>e.alive&&e.visible&&Math.hypot(e.x-s.position[0],e.z-s.position[2])<40).sort((a,b)=>Math.hypot(a.x-s.position[0],a.z-s.position[2])-Math.hypot(b.x-s.position[0],b.z-s.position[2]))[0];
-    if(e){g.aim(...e.head);g.setAiming(true);g.shoot();}
+    const soldier=g.factions().find(f=>f.alive&&f.side==='hostile'&&f.visible&&Math.hypot(f.position[0]-s.position[0],f.position[2]-s.position[2])<40);if(soldier){g.aim(...soldier.head);g.setAiming(true);g.shoot();}else if(e){g.aim(...e.head);g.setAiming(true);g.shoot();}
   });
   const activity=async m=>{
     await mission(m.id);
-    for(let phase=0;phase<m.activity.steps.length;phase++){
-      const step=m.activity.steps[phase];
+    for(let phase=0;phase<12;phase++){
+      if((await state()).learned.includes(m.id))break;
+      const step=await page.evaluate(phase=>window.__nachtwache.activity().definition?.steps[phase],phase);if(!step)break;
       check((await state()).activities[m.id]?.step===phase||phase===0,`${m.id}: ordered sub-objectives`);
+      if(step.kind==='choice'){
+        const target=await page.evaluate(()=>window.__nachtwache.activity().target);await at(target.x,target.z);
+        const choices={care:'Eva zur mobilen Krankenstation schicken',supplies:'Die Dorfküchen versorgen',signal:'Den Hilferuf offen senden',truth:'Noah überzeugen, den Helfern die Wahrheit zu sagen',front:'Die zivile Notaufnahme unabhängig versorgen',pact:'Ein gemeinsames Schutzabkommen aushandeln'};
+        await page.getByRole('button',{name:choices[step.choice]}).click();
+        await page.evaluate(()=>{const g=window.__nachtwache;while(g.state().dialogue)g.nextDialogue();});continue;
+      }
       if(step.kind==='shelter'){
         const h=cfg.houses.find(h=>h.id===step.house);
         await at(h.x-4,h.z+10);await at(h.x,h.z+12);await at(h.x+3,h.z+2);await at(h.x+4,h.z+10.5);
@@ -54,7 +61,7 @@ async(page)=>{
           }
         }
       }
-      if(['clear','defend','escort'].includes(step.kind)){
+      if(['clear','defend','escort','war'].includes(step.kind)){
         check(step.kind==='escort'||(await state()).activities[m.id].step===phase,`${m.id}: interaction cannot skip ${step.kind}`);
         for(let i=0;i<600;i++){
           if((await state()).activities[m.id].step>phase)break;
@@ -114,7 +121,7 @@ async(page)=>{
   await at(114,-62);await mission('lenz');await at(120,85);await mission('fuse');await at(178,-23);await at(181,-18);await mission('power');await at(120,90);await mission('shotgun');
   await at(181,-70);await at(181,-74);await mission('keycard');await at(184,-136);await mission('archive');await at(120,-132);await at(120,-136);await mission('suburbs');
   for(const m of cfg.missions.filter(m=>m.kind==='activity'&&m.chapter===3))await activity(m);
-  await mission('serum');await at(48,23);await mission('repair');await at(57,20);await at(60,-25,false);await at(71,-24,false);
+  await mission('serum');await at(48,23);await page.getByRole('button',{name:'Noah jetzt stabilisieren'}).click();await page.evaluate(()=>{const g=window.__nachtwache;while(g.state().dialogue)g.nextDialogue();});await mission('repair');await at(57,20);await at(60,-25,false);await at(71,-24,false);
   await page.evaluate(()=>{const g=window.__nachtwache;g.teleport(66,-25);g.consume('scrap');});await mission('tower');
   for(let i=0;i<180;i++){
     const s=await state();check(s.health>0,'Died during escort');if(Math.hypot(s.noah[0]-66,s.noah[2]+25)<12)break;

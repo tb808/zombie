@@ -1,10 +1,15 @@
 import * as THREE from 'three';
 import { STORY_ACTIVITIES, type ActivityStates } from './storyActivities.ts';
 import type { createLootVisualLibrary, LootVisualKind } from './lootVisuals.ts';
+import { STORY_CHOICES, newNarrative, type NarrativeState } from './narrative.ts';
+import { resolveActivity } from './storyNarrative.ts';
 
 export function buildActivityProps(scene:THREE.Scene,height:(x:number,z:number)=>number,lootVisuals:ReturnType<typeof createLootVisualLibrary>){
-  const roots=STORY_ACTIVITIES.flatMap(m=>m.steps.flatMap((s,index)=>{
+  const seen=new Set<string>();
+  const variants=STORY_ACTIVITIES.flatMap(m=>[m,resolveActivity(m,newNarrative()),...Object.values(STORY_CHOICES).flatMap(c=>c.options.map(o=>resolveActivity(m,{...newNarrative(),choices:{[c.id]:o.id}})))]);
+  const roots=variants.flatMap(m=>m.steps.flatMap((s,index)=>{
     if(!s.prop||['talk','treat','deliver','escort','shelter','clear'].includes(s.kind))return [];
+    const key=`${m.id}:${s.kind}:${s.prop}:${s.x}:${s.z}`;if(seen.has(key))return [];seen.add(key);
     const root=new THREE.Group();root.position.set(s.x,height(s.x,s.z),s.z);root.name=`activity-${m.id}-${index}`;
     const color=s.prop==='medicine'?0xf1e6cf:s.prop==='food'?0x937650:s.prop==='fuel'?0xc36b3e:s.prop==='tools'?0xcc9c47:0x729da5;
     const material=new THREE.MeshStandardMaterial({color,roughness:.7,metalness:.22});
@@ -23,14 +28,17 @@ export function buildActivityProps(scene:THREE.Scene,height:(x:number,z:number)=
       box(.28,.06,.1,0,.7,0);box(.08,.38,.52,.18,.45,0);
       if(s.prop==='medicine'){const red=new THREE.MeshStandardMaterial({color:0xd84340});box(.1,.24,.02,0,.46,.26,red);box(.24,.1,.02,0,.46,.27,red);}
     }
-    root.visible=false;scene.add(root);return [{mission:m.id,index,root,indicator,device}];
+    root.visible=false;scene.add(root);return [{mission:m.id,index,kind:s.kind,prop:s.prop,root,indicator,device}];
   }));
-  return {update(states:ActivityStates,learned:readonly string[],current:string,camera:{x:number;z:number}){
+  let fingerprint='';
+  return {update(states:ActivityStates,learned:readonly string[],current:string,camera:{x:number;z:number},narrative:NarrativeState){
+    const next=JSON.stringify(narrative.choices);
+    if(next!==fingerprint){fingerprint=next;const resolved=new Map(STORY_ACTIVITIES.map(m=>[m.id,resolveActivity(m,narrative)]));for(const r of roots){const m=resolved.get(r.mission)!;r.index=m.steps.findIndex(s=>s.kind===r.kind&&s.prop===r.prop&&s.x===r.root.position.x&&s.z===r.root.position.z);}}
     for(const r of roots){
       const done=learned.includes(r.mission)||(states[r.mission]?.step??0)>r.index;
       const phase=learned.includes(r.mission)?Infinity:states[r.mission]?.step??0;
       const replaced=r.device&&roots.some(other=>other!==r&&other.device&&other.mission===r.mission&&other.index>r.index&&other.index<=phase&&other.root.position.distanceTo(r.root.position)<.1);
-      r.root.visible=!replaced&&Math.hypot(camera.x-r.root.position.x,camera.z-r.root.position.z)<140&&(r.mission===current&&r.index<=phase||done&&r.device)&&(!done||r.device);
+      r.root.visible=r.index>=0&&!replaced&&Math.hypot(camera.x-r.root.position.x,camera.z-r.root.position.z)<140&&(r.mission===current&&r.index<=phase||done&&r.device)&&(!done||r.device);
       r.indicator.emissive.setHex(done?0x248d55:0x7b9d27);r.indicator.color.setHex(done?0x5ad8a0:0xdfff6b);
     }
   }};

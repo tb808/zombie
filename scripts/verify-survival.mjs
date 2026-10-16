@@ -20,6 +20,10 @@ const behind=makeBrain(origin);think(behind,'walker',origin,{x:0,z:-10},0,[],[],
 const path=findPath(origin,{x:0,z:8},wall);assert(path.length>1,'Routes around wall');
 let previous=origin;for(const p of path){assert(!segmentBlocked(previous.x,previous.z,p.x,p.z,wall.map(o=>({...o,hx:o.hx+.48,hz:o.hz+.48}))),'Path avoids inflated wall');previous=p;}
 assert.equal(findPath(origin,{x:0,z:0},[{x:0,z:0,hx:2,hz:2}]).length,0,'No path from sealed obstacle');
+const wallEdge={x:1.4505,z:0},edgeWall=[{x:0,z:0,hx:1,hz:4}];
+const edgeRoute=findPath(wallEdge,{x:0,z:6},edgeWall,.45);
+assert(edgeRoute.length,'An actor at the movement wall clearance can still route around a corner');
+let edgePrevious=wallEdge;for(const point of edgeRoute){assert(!segmentBlocked(edgePrevious.x,edgePrevious.z,point.x,point.z,edgeWall.map(o=>({...o,hx:o.hx+.45,hz:o.hz+.45}))),'Edge recovery does not walk through the wall');edgePrevious=point;}
 const arsenal=freshArsenal(),other=freshArsenal();arsenal.pistol.ammo=0;assert.equal(other.pistol.ammo,12);assert(!arsenal.shotgun.owned);assert(WEAPONS.shotgun.pellets>1);assert(ZOMBIES.runner.speed>ZOMBIES.walker.speed);assert(ZOMBIES.tank.damage>ZOMBIES.walker.damage);
 
 const obstacles=[],scene=new Scene();const city=buildCity(scene,()=>0,obstacles,()=>new Mesh(new BoxGeometry(),new MeshBasicMaterial()));

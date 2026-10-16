@@ -10,7 +10,12 @@ type Arsenal = ReturnType<typeof freshArsenal>;
 
 export const isWeaponItem = (item: InventoryItem): item is WeaponKind => Object.hasOwn(WEAPONS, item);
 export const inventoryItemName = (item: InventoryItem) => isWeaponItem(item) ? WEAPONS[item].name : ITEMS[item].name;
-export const inventoryItemColor = (item: InventoryItem) => isWeaponItem(item) ? '#d9dcbd' : ITEMS[item].color;
+// Quiet inks for the interface; world pickups retain their own material colours.
+const ITEM_INKS: Record<ItemKind, string> = {
+  medkit: '#a66f61', ration: '#a18a60', battery: '#718b86', flare: '#aa805d',
+  scrap: '#8a8b7e', water: '#708c9a', antibiotic: '#8b8097', armor: '#7c8d71', planks: '#9b8464',
+};
+export const inventoryItemColor = (item: InventoryItem) => isWeaponItem(item) ? '#a7aa97' : ITEM_INKS[item];
 export const inventoryItemCount = (item: InventoryItem, inventory: Inventory, arsenal: Arsenal) => isWeaponItem(item) ? Number(arsenal[item].owned) : inventory[item];
 const availableItems = (inventory: Inventory, arsenal: Arsenal): InventoryItem[] => [
   ...(Object.keys(WEAPONS) as WeaponKind[]).filter(item => arsenal[item].owned),

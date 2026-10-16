@@ -10,6 +10,7 @@ export const ZOMBIES = {
   tank: { name: 'Brecher', health: 360, speed: 1.1, damage: 28, scale: 1.5, windup: 1.2, recovery: 1.7, sight: 16 },
   crawler: { name: 'Kriecher', health: 60, speed: 1, damage: 10, scale: .95, windup: .85, recovery: 1.3, sight: 12 },
   infected: { name: 'Fiebernder', health: 105, speed: 2.7, damage: 14, scale: 1.02, windup: .58, recovery: .95, sight: 21 },
+  nightHunter: { name: 'Nachtjäger', health: 560, speed: 5.8, damage: 38, scale: 1.22, windup: .65, recovery: 1.15, sight: 28 },
 } as const;
 export type ZombieKind = keyof typeof ZOMBIES;
 export type BrainState = 'idle' | 'wander' | 'notice' | 'chase' | 'investigate' | 'search' | 'attack' | 'recover' | 'hit' | 'fall' | 'rise' | 'feed' | 'dead';
@@ -41,7 +42,7 @@ export function think(brain: Brain, kind: ZombieKind, position: Point, player: P
   }
   if (sees && !(noise?.kind === 'flare' && distance > 3)) {
     if (brain.state === 'feed') { transition(brain, 'rise', 1.5); return { speed: 0, strike: false }; }
-    if (['idle', 'wander', 'investigate'].includes(brain.state)) { transition(brain, 'notice', kind === 'infected' ? .2 : .55); return { speed: 0, strike: false }; }
+    if (['idle', 'wander', 'investigate'].includes(brain.state)) { transition(brain, 'notice', kind === 'infected' || kind === 'nightHunter' ? .2 : .55); return { speed: 0, strike: false }; }
     if (distance < (kind === 'tank' ? 1.95 : 1.5)) { transition(brain, 'attack', spec.windup); return { speed: 0, strike: false }; }
     brain.state = 'chase'; brain.target = { ...brain.lastKnown };
   } else if (noise && (brain.memory <= 0 || noise.kind === 'flare')) {

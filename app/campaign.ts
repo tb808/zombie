@@ -1,6 +1,7 @@
 import { START_POINTS, REGIONAL_SHELTERS } from './shelterSites.ts';
 import { REGIONAL_STORY, type RegionalMissionId } from './regionalStory.ts';
 import type { ActivityDefinition } from './storyActivities.ts';
+import type { NarrativeState } from './narrative.ts';
 const firstHouse=REGIONAL_SHELTERS.find(h=>h.id==='fichtenau')!;
 const TASKS = [
   { id: 'intro', place: 'RANGERSTATION', title: 'Sprich mit Mara', detail: 'E am Lagerfeuer: erfahre, was in Tannwald passiert ist.', x: -53, z: -36 },
@@ -32,8 +33,8 @@ export const STORY_GOAL = 'Hilf den Überlebenden und verbinde die Siedlungen du
 export const CHAPTERS = [
   { title:'Ein Licht in Fichtenau', summary:'Lerne deine Ausrüstung kennen, bringe Maras Funkgerät zum Laufen und sichere den ersten Schlafplatz für das Dorf.' },
   { title:'Niemand bleibt zurück', summary:'Versorge Eva, befreie Tom, begleite Oskar und sichere den Markt. Deine Hilfe führt euch zu Noah am Friedhof.' },
-  { title:'Gemeinsam wieder aufbauen', summary:'Versorge Kornweiler, sichere Rückzugsorte und arbeite mit den Helfern am Funknetz. Webers Nachricht führt euch später zu einem gemeinsamen Labortest.' },
-  { title:'Eine Chance für alle', summary:'Versorge die Krankenstation, baue mit Jo die Kühlung auf und berge W-07 mit Otto. Bringe die stabile Dosis und Noah zum letzten Konvoi.' },
+  { title:'Was unsere Versprechen kosten', summary:'Die Dörfer und das Fort brauchen dieselben Vorräte. Hilfe schafft Vertrauen, Funk bringt neue Antworten und der Labortest verändert, was ihr über Noah wisst.' },
+  { title:'Ein Morgen nach dem Krieg', summary:'Ein Originalbefehl verändert den Konflikt. Entscheide über das Schutzabkommen, berge die Kühlung und trage die Folgen deiner letzten medizinischen Entscheidung zum Sender.' },
 ] as const;
 type TaskId = typeof TASKS[number]['id'];
 export type CampaignId = TaskId | 'returnFuel' | 'keycard' | RegionalMissionId;
@@ -43,9 +44,9 @@ const STORY_LINKS: Record<TaskId,{chapter:number;title:string;reason:string;deta
   map:{chapter:0,title:'Finde das Holzlager auf Maras Karte',reason:'Fichtenau liegt am weitesten von der Stadt entfernt. Die Brennstoffzelle im Holzlager bringt euch den ersten Funkkontakt.',detail:'Öffne M. Dein Standort ist Fichtenau; das Ziel führt zum Holzlager im Dorf.'},
   supplies:{chapter:0,title:'Hole Verbände und hilf Jonas',reason:'Jonas hat sich am Arm verletzt. Mara hat Verbände am Lager bereitgelegt; mit E kannst du ihn versorgen.',detail:'Sammle den Verband am Lager. Danach führt dich das Missionszeichen zu Jonas.'},
   water:{chapter:0,title:'Mach dich bereit für den Weg',reason:'Mara hat dir Wasser gegeben. Du musst das Holzlager und die Rückkehr schaffen, ohne zu erschöpfen.'},
-  aim:{chapter:0,title:'Prüfe die Pistole vor dem Aufbruch',reason:'Jonas hat die Pistole aus dem Lager geholt. Prüfe ihren Treffpunkt hier, bevor du ihr draußen dein Leben anvertraust.'},
+  aim:{chapter:0,title:'Prüfe die Pistole vor dem Aufbruch',reason:'Jonas hat dir die Pistole aus dem Bus gegeben. Prüfe ihren Treffpunkt hier, bevor du ihr draußen dein Leben anvertraust.'},
   reload:{chapter:0,title:'Fülle das Magazin für den Rückweg',reason:'Der Kontrollschuss hat eine Patrone verbraucht. Jonas schickt dich mit einem vollen Magazin zum Holzlager.'},
-  axe:{chapter:0,title:'Halte eine leise Alternative bereit',reason:'In Fichtenau solltest du keinen ganzen Schwarm anlocken. Jonas gibt dir eine Axt für den Nahkampf.'},
+  axe:{chapter:0,title:'Halte eine leise Alternative bereit',reason:'In Fichtenau solltest du keinen ganzen Schwarm anlocken. Prüfe auch die Axt aus deinem Bus für den Nahkampf.'},
   fuel:{chapter:0,title:'Berge die Brennstoffzelle im Holzlager',reason:'Mit der Zelle kann Mara das Funkgerät wieder betreiben und eine Nachricht vom Konvoi empfangen.',detail:'Gehe leise zum Holzlager in Fichtenau. Shift sprintet, verbraucht Ausdauer und macht Geräusche.'},
   flare:{chapter:1,title:'Lenke Noahs Verfolger ab',reason:'Mara empfängt Noahs Hilferuf: Er sitzt am Mausoleum fest und kennt den Weg zu Dr. Weber.'},
   noah:{chapter:1,title:'Hole Noah aus dem Mausoleum',reason:'Ohne Noah fehlt euch der Kontakt zu Weber. Lass ihn nicht zwischen den Infizierten zurück.'},
@@ -58,9 +59,9 @@ const STORY_LINKS: Record<TaskId,{chapter:number;title:string;reason:string;deta
   fuse:{chapter:2,title:'Berge die Teile für den Generator',reason:'Lenz kann das Archiv versorgen, wenn du seine Ersatzsicherung und Material für die Verkabelung findest.'},
   power:{chapter:2,title:'Schalte den Weg ins Archiv frei',reason:'Mit Strom funktionieren Archivtür und Straßenbeleuchtung. Der laute Generator lockt allerdings Infizierte an.'},
   shotgun:{chapter:2,title:'Hole Schutz für Noah und die Dosis',reason:'Lenz gibt dir den Polizeischlüssel. In der Klinik warten schwere Infizierte; ihr braucht eine stärkere Waffe für die Rückkehr.'},
-  archive:{chapter:2,title:'Finde die Kennung der stabilen Dosis',reason:'Zwischen den Laborproben darfst du keine falsche mitnehmen. Webers Protokoll nennt Behälter und Standort – und belegt Falks Verantwortung.',detail:'Öffne das Archiv mit Strom und Keycard. Lies mit E das Original auf der Kiste im hinteren Raum.'},
-  serum:{chapter:3,title:'Berge Dosis C-07 in den Kühlbehälter',reason:'W-07 ist bereit. Das Archiv führt euch zum blauen Behälter in der alten Klinik. Die Dosis bleibt für den Konvoi versiegelt.'},
-  repair:{chapter:3,title:'Mach das Rettungssignal hörbar',reason:'Das Gegenmittel ist bei euch, doch der Turmsender verliert Leistung. Ein schwaches Signal erreicht den Konvoi nicht zuverlässig.'},
+  archive:{chapter:2,title:'Prüfe Webers Protokoll und den Originalbefehl',reason:'Zwischen den Laborproben darfst du keine falsche mitnehmen. Webers Protokoll nennt Behälter und Standort. Der Originalbefehl erklärt, wer den Versorgungskonflikt angeheizt hat.',detail:'Öffne das Archiv mit Strom und Keycard. Lies mit E das Original auf der Kiste im hinteren Raum.'},
+  serum:{chapter:3,title:'Berge Dosis C-07 in den Kühlbehälter',reason:'W-07 ist bereit. Das Archiv führt euch zum blauen Behälter in der alten Klinik. Weber braucht die Kultur; Noah braucht eine Behandlung. Erst an der Klinik könnt ihr entscheiden.'},
+  repair:{chapter:3,title:'Mach das Rettungssignal hörbar',reason:'C-07 ist bei euch, doch der Turmsender verliert Leistung. Ein schwaches Signal erreicht den Konvoi nicht zuverlässig.'},
   tower:{chapter:3,title:'Melde Noah und die Dosis zur Abholung',reason:'Der Sender ist bereit. Mara kann dem Konvoi jetzt eure Position melden, sobald Noah bei dir angekommen ist.'},
   defend:{chapter:3,title:'Haltet gemeinsam bis zur Rettung durch',reason:'Der Konvoi hat euren Ruf gehört. Auch die Infizierten kennen eure Position; schützt Noah und die Dosis bis zur Ankunft.'},
 };
@@ -79,4 +80,4 @@ const order:CampaignId[]=['intro','map','supplies','water','aim','reload','axe',
 const missions=new Map<CampaignId,Mission>([...baseCampaign,...REGIONAL_STORY.map(r=>({...r,kind:'activity' as const,activity:r,detail:r.steps[0].label}))].map(m=>[m.id,m]));
 export const CAMPAIGN:readonly Mission[]=order.map(id=>missions.get(id)!);
 export const missionIndex = (id: CampaignId) => CAMPAIGN.findIndex(m => m.id === id);
-export const storyGoal=(stage:number)=>stage>=missionIndex('research')?'Berge mit den Helfern die stabile Dosis und bringe Noah zum Konvoi.':stage>=missionIndex('northForest')?'Verbinde die Zufluchtsorte und stelle den Kontakt zu Dr. Weber her.':STORY_GOAL;
+export const storyGoal=(stage:number,n?:NarrativeState)=>n?.revealed.includes('noahFarewell')?'Bringe Noahs Vermächtnis und die intakte Kultur zum Evakuierungswagen.':n?.revealed.includes('war')?'Schütze die Menschen zwischen den Fronten und berge mit den Helfern C-07.':n?.revealed.includes('convoy')?'Baue einen wirklichen Rettungsweg auf. Die alte Konvoimeldung war eine Aufnahme.':stage>=missionIndex('northForest')?'Verbinde die Zufluchtsorte und stelle den Kontakt zu Dr. Weber her.':STORY_GOAL;

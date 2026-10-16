@@ -1,6 +1,15 @@
 import { daylightAt, refugeAt } from './environment.ts';
 import { SAFEHOUSES, houseSecured, type HouseState } from './safehouses.ts';
-import type { ZombieKind } from './survival.ts';
+import { riskAt } from './regionPlan.ts';
+import type { Point, ZombieKind } from './survival.ts';
+
+export const NIGHT_HUNTER_CAP = 2;
+export const isHunterNight = (elapsed:number) => daylightAt(elapsed).period === 'NACHT';
+// Use the underlying area's risk, so helping a settlement does not erase this
+// nocturnal threat. Check both positions to protect borders of the early areas.
+export function nightHunterAllowed(elapsed:number,chapter:number,player:Point,spawn:Point=player) {
+  return isHunterNight(elapsed) && chapter>=2 && riskAt(player.x,player.z)>=2 && riskAt(spawn.x,spawn.z)>=2;
+}
 
 export function nightThreat(elapsed: number) {
   const { hours } = daylightAt(elapsed);
@@ -15,7 +24,8 @@ export function uvProtectedAt(elapsed:number, houses:Record<string,HouseState>, 
   return refugeAt(x,z,margin) ?? SAFEHOUSES.find(h=>houseSecured(houses[h.id])&&Math.abs(x-h.x)<7.1+margin&&z>h.z-6.6-margin&&z<h.z+9.5+margin);
 }
 
-export function roamingZombie(elapsed:number,risk:number,roll:number,tougher=false):ZombieKind {
+export function roamingZombie(elapsed:number,risk:number,roll:number,tougher=false,allowNightHunter=false):ZombieKind {
+  if(allowNightHunter && isHunterNight(elapsed) && roll<(risk>=3?.18:.14))return 'nightHunter';
   if(tougher)return 'tank';
   const strength=nightThreat(elapsed).strength;
   const tank=.02+risk*.025+strength*.12, runner=.1+risk*.035+strength*.16, infected=.12+strength*.15;
